@@ -1,17 +1,11 @@
-use crate::states::{AppState, MainMenuState};
+use crate::states::AppState;
 use bevy::prelude::*;
 use bevy::text::FontSmoothing;
 
 pub struct MainMenuPlugin;
 impl Plugin for MainMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_sub_state::<MainMenuState>()
-            .add_systems(OnEnter(AppState::MainMenu), setup_main_menu)
-            .add_systems(
-                Update,
-                (update_main_menu, check_for_window_resize).run_if(in_state(AppState::MainMenu)),
-            )
-            .add_systems(OnExit(AppState::MainMenu), cleanup_main_menu);
+        app.add_systems(OnEnter(AppState::MainMenu), setup_main_menu);
     }
 }
 
@@ -66,7 +60,7 @@ fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                         }
                     ),
                     (
-                        Text::new("Rustscop:"),
+                        Text::new("Miniscop:"),
                         TextColor::from(LOGO_COLOR),
                         TextFont {
                             font: asset_server.load("global/fonts/PoetsenOne-Regular.ttf"),
@@ -76,7 +70,7 @@ fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
                         }
                     ),
                     (
-                        Text::new("Investigate Together"),
+                        Text::new("Investigate Together!"),
                         TextColor::from(LOGO_COLOR),
                         TextFont {
                             font: asset_server.load("global/fonts/PoetsenOne-Regular.ttf"),
@@ -121,6 +115,3 @@ fn setup_main_menu(mut commands: Commands, asset_server: Res<AssetServer>) {
         ],
     ));
 }
-fn update_main_menu() {}
-fn check_for_window_resize() {}
-fn cleanup_main_menu() {}

@@ -7,12 +7,5 @@ pub enum AppState {
     Garalina,
     MainMenu,
     LoadingScreen,
-}
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
-#[source(AppState = AppState::MainMenu)]
-pub enum MainMenuState {
-    #[default]
-    Title,
-    FileSelect,
-    FileNaming,
+    Overworld,
 }

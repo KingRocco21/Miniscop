@@ -1,11 +1,13 @@
 use crate::plugins::garalina::GaralinaPlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
+use crate::plugins::overworld::OverworldPlugin;
 use crate::states::AppState;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
 use bevy::prelude::*;
 use bevy::text::FontSmoothing;
 use bevy::window::{CursorOptions, PresentMode};
 use bevy_obj::ObjPlugin;
+use std::time::Duration;
 
 mod plugins;
 mod states;
@@ -38,12 +40,13 @@ fn main() {
             FpsOverlayPlugin {
                 config: FpsOverlayConfig {
                     text_color: Color::WHITE,
+                    refresh_interval: Duration::from_secs(1),
                     ..default()
                 },
             },
         ))
-        .insert_state(AppState::MainMenu)
-        .add_plugins((GaralinaPlugin, MainMenuPlugin))
+        .insert_state(AppState::Overworld)
+        .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
         .add_systems(Startup, setup)
         .run();
 }
