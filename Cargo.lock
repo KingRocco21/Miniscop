@@ -8,6 +8,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_obj",
+ "bevy_sprite3d",
 ]
 
 [[package]]
@@ -1139,6 +1140,15 @@ dependencies = [
  "nonmax",
  "radsort",
  "tracing",
+]
+
+[[package]]
+name = "bevy_sprite3d"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aab6a643739da6d576c28d7e20f78aa4dc00406eefcf92f1a5e1f30fad367079"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]

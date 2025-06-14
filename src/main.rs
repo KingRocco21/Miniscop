@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy::text::FontSmoothing;
 use bevy::window::{CursorOptions, PresentMode};
 use bevy_obj::ObjPlugin;
+use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
 
 mod plugins;
@@ -37,6 +38,7 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
             ObjPlugin,
+            Sprite3dPlugin,
             FpsOverlayPlugin {
                 config: FpsOverlayConfig {
                     text_color: Color::WHITE,
@@ -45,7 +47,7 @@ fn main() {
                 },
             },
         ))
-        .insert_state(AppState::MainMenu)
+        .insert_state(AppState::Overworld)
         .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
         .add_systems(Startup, setup)
         .run();

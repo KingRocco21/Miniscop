@@ -6,6 +6,5 @@ pub enum AppState {
     #[default]
     Garalina,
     MainMenu,
-    LoadingScreen,
     Overworld,
 }

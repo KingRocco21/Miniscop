@@ -12,7 +12,10 @@ pub struct MainMenuPlugin;
 impl Plugin for MainMenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppState::MainMenu), setup_main_menu)
-            .add_systems(Update, update_title.run_if(in_state(AppState::MainMenu)));
+            .add_systems(
+                Update,
+                update_title_screen.run_if(in_state(AppState::MainMenu)),
+            );
     }
 }
 
@@ -21,7 +24,11 @@ const GIFT_ASPECT_RATIO: f32 = 88.0 / 83.0;
 const LOGO_ASPECT_RATIO: f32 = 528.0 / 145.0;
 
 #[derive(Component)]
-struct Rotatable;
+struct Title;
+#[derive(Component)]
+struct Gift;
+#[derive(Component)]
+struct FlashingText;
 
 // Systems
 fn setup_main_menu(
@@ -72,13 +79,17 @@ fn setup_main_menu(
         // https://github.com/bevyengine/bevy/issues/5183
         // RenderLayers::layer(1),
         Transform::from_xyz(0.0, 0.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
+        AmbientLight {
+            brightness: 100.0,
+            ..default()
+        },
     ));
     // Title
     commands.spawn((
         StateScoped(AppState::MainMenu),
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("mainmenu/3d/Title.glb"))),
         Transform::default(),
-        Rotatable,
+        Title,
         // https://github.com/bevyengine/bevy/issues/5183
         // RenderLayers::layer(1),
     ));
@@ -107,7 +118,7 @@ fn setup_main_menu(
             ..default()
         },
         children![
-            // Title Node
+            // Title screen node
             (
                 Node {
                     align_items: AlignItems::Center,
@@ -119,17 +130,20 @@ fn setup_main_menu(
                     ..default()
                 },
                 children![
+                    // Gift
                     (
                         ImageNode::new(asset_server.load("mainmenu/gift.png")),
-                        Transform::default(), // Todo: rotate with sine function
                         Node {
                             width: Val::Px(GIFT_ASPECT_RATIO * 300.0),
                             height: Val::Px(300.0),
                             justify_content: JustifyContent::Center,
                             ..default()
                         },
+                        Transform::default(),
+                        Gift,
                         children![ImageNode::new(camera_as_image_handle)]
                     ),
+                    // Press Z to Begin
                     (
                         Text::new("Press Z to Begin"),
                         TextColor::WHITE,
@@ -138,8 +152,10 @@ fn setup_main_menu(
                             font_size: 50.0,
                             font_smoothing: FontSmoothing::None,
                             ..default()
-                        }
+                        },
+                        FlashingText,
                     ),
+                    // Copyright
                     (
                         Text::new("© 1997 Garalina"),
                         TextColor::WHITE,
@@ -162,12 +178,35 @@ fn setup_main_menu(
     ));
 }
 
-fn update_title(mut title: Single<&mut Transform, With<Rotatable>>, time: Res<Time>) {
+fn update_title_screen(
+    mut transforms: ParamSet<(
+        Single<&mut Transform, With<Title>>,
+        Single<&mut Transform, With<Gift>>,
+    )>,
+    mut flashing_text: Single<&mut Visibility, With<FlashingText>>,
+    time: Res<Time>,
+) {
     let seconds = time.elapsed_secs();
-    // See https://www.desmos.com/calculator/2ubcdcyfti for visualization
-    // 10 degrees max in each direction
-    let theta_y = sin(2.0 * PI * seconds) * cos(PI / 6.0 * seconds) * PI / 18.0;
-    // 10 degrees max in each direction
-    let theta_z = sin(2.0 * PI * seconds) * sin(PI / 6.0 * seconds) * PI / 18.0;
-    title.rotation = Quat::from_euler(EulerRot::XYZEx, 0.0, theta_y, theta_z);
+    // Mutable access to the title transform
+    {
+        // See https://www.desmos.com/calculator/2ubcdcyfti for visualization
+        // 10 degrees max in each direction
+        let theta_y = sin(2.0 * PI * seconds) * cos(PI / 6.0 * seconds) * PI / 18.0;
+        // 10 degrees max in each direction
+        let theta_z = sin(2.0 * PI * seconds) * sin(PI / 6.0 * seconds) * PI / 18.0;
+        transforms.p0().rotation = Quat::from_euler(EulerRot::XYZEx, 0.0, theta_y, theta_z);
+    }
+    // Mutable access to the gift transform
+    {
+        // 10 degrees max in each direction
+        let theta_z = cos(2.0 * PI * seconds) * PI / 18.0;
+        transforms.p1().rotation = Quat::from_rotation_z(theta_z);
+    }
+
+    // Flash text every second
+    if (seconds as i32) % 2 == 0 {
+        **flashing_text = Visibility::Visible;
+    } else {
+        **flashing_text = Visibility::Hidden;
+    }
 }
