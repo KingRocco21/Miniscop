@@ -45,7 +45,7 @@ fn main() {
                 },
             },
         ))
-        .insert_state(AppState::Overworld)
+        .insert_state(AppState::MainMenu)
         .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
         .add_systems(Startup, setup)
         .run();
