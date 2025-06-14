@@ -1,16 +1,18 @@
 use crate::states::AppState;
 use bevy::asset::RenderAssetUsages;
+use bevy::math::ops::{cos, sin};
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
-use bevy::render::view::RenderLayers;
 use bevy::text::FontSmoothing;
 use bevy::ui::PositionType;
+use std::f32::consts::PI;
 
 pub struct MainMenuPlugin;
 impl Plugin for MainMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(OnEnter(AppState::MainMenu), setup_main_menu);
+        app.add_systems(OnEnter(AppState::MainMenu), setup_main_menu)
+            .add_systems(Update, update_title.run_if(in_state(AppState::MainMenu)));
     }
 }
 
@@ -32,7 +34,7 @@ fn setup_main_menu(
     //     StateScoped(AppState::MainMenu),
     //     AudioPlayer::new(asset_server.load("mainmenu/petscop.ogg")),
     // ));
-    // Main 3D Camera
+    // Main Camera
     commands.spawn((
         StateScoped(AppState::MainMenu),
         Camera2d,
@@ -40,9 +42,10 @@ fn setup_main_menu(
             order: 1,
             ..default()
         },
-        RenderLayers::layer(0),
+        // https://github.com/bevyengine/bevy/issues/5183
+        // RenderLayers::layer(0),
     ));
-    // Logo camera rendered as an image
+    // Title camera rendered as an image
     let mut camera_as_image = Image::new_fill(
         Extent3d {
             width: (LOGO_ASPECT_RATIO * 200.0) as u32,
@@ -62,36 +65,40 @@ fn setup_main_menu(
         Camera3d::default(),
         Camera {
             target: RenderTarget::Image(camera_as_image_handle.clone().into()),
-            clear_color: ClearColorConfig::Custom(Color::WHITE), // Change this to transparency if you get smearing
+            clear_color: ClearColorConfig::Custom(Color::srgba(0.0, 0.0, 0.0, 0.0)),
             order: 0,
             ..default()
         },
-        RenderLayers::layer(1),
-        Transform::from_xyz(0.0, 0.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
+        // https://github.com/bevyengine/bevy/issues/5183
+        // RenderLayers::layer(1),
+        Transform::from_xyz(0.0, 0.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    // Logo
+    // Title
     commands.spawn((
         StateScoped(AppState::MainMenu),
         SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("mainmenu/3d/Title.glb"))),
         Transform::default(),
         Rotatable,
-        RenderLayers::layer(1),
+        // https://github.com/bevyengine/bevy/issues/5183
+        // RenderLayers::layer(1),
     ));
-    // Logo lighting
+    // Title lighting
     commands.spawn((
         StateScoped(AppState::MainMenu),
         DirectionalLight {
             shadows_enabled: true,
             ..default()
         },
-        RenderLayers::layer(1),
+        // https://github.com/bevyengine/bevy/issues/5183
+        // RenderLayers::layer(1),
     ));
     // Font
     let petscop_font = asset_server.load::<Font>("global/fonts/PetscopWide.ttf");
     // UI
     commands.spawn((
         StateScoped(AppState::MainMenu),
-        RenderLayers::layer(0),
+        // https://github.com/bevyengine/bevy/issues/5183
+        // RenderLayers::layer(0),
         // Big UI with a width of twice the window width to fit multiple child UIs
         Node {
             align_items: AlignItems::Center,
@@ -121,16 +128,10 @@ fn setup_main_menu(
                         Node {
                             width: Val::Px(GIFT_ASPECT_RATIO * 300.0),
                             height: Val::Px(300.0),
-                            ..default()
-                        }
-                    ),
-                    (
-                        ImageNode::new(camera_as_image_handle),
-                        Node {
-                            position_type: PositionType::Absolute,
-                            bottom: Val::Percent(40.0),
+                            justify_content: JustifyContent::Center,
                             ..default()
                         },
+                        children![ImageNode::new(camera_as_image_handle)]
                     ),
                     (
                         Text::new("Press Z to Begin"),
@@ -162,4 +163,14 @@ fn setup_main_menu(
             // Todo: Add rest of UI lol
         ],
     ));
+}
+
+fn update_title(mut title: Single<&mut Transform, With<Rotatable>>, time: Res<Time>) {
+    let seconds = time.elapsed_secs();
+    // See https://www.desmos.com/calculator/2ubcdcyfti for visualization
+    // 10 degrees max in each direction
+    let theta_y = sin(2.0 * PI * seconds) * cos(PI / 6.0 * seconds) * PI / 18.0;
+    // 10 degrees max in each direction
+    let theta_z = sin(2.0 * PI * seconds) * sin(PI / 6.0 * seconds) * PI / 18.0;
+    title.rotation = Quat::from_euler(EulerRot::XYZEx, 0.0, theta_y, theta_z);
 }
