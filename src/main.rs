@@ -59,4 +59,5 @@ fn setup(mut fps_overlay_config: ResMut<FpsOverlayConfig>, asset_server: Res<Ass
         font_smoothing: FontSmoothing::None,
         ..default()
     }
+    // Possible fix for overlay bugs: get entity and insert renderlayer or UITargetCamera
 }

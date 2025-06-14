@@ -71,7 +71,7 @@ fn setup_main_menu(
         },
         // https://github.com/bevyengine/bevy/issues/5183
         // RenderLayers::layer(1),
-        Transform::from_xyz(0.0, 0.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 0.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
     // Title
     commands.spawn((
@@ -85,10 +85,7 @@ fn setup_main_menu(
     // Title lighting
     commands.spawn((
         StateScoped(AppState::MainMenu),
-        DirectionalLight {
-            shadows_enabled: true,
-            ..default()
-        },
+        DirectionalLight::default(),
         // https://github.com/bevyengine/bevy/issues/5183
         // RenderLayers::layer(1),
     ));
