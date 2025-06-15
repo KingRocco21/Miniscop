@@ -77,7 +77,7 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
         },
         Transform::from_xyz(0.0, 3.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y),
         AmbientLight {
-            brightness: 100.0,
+            brightness: 1000.0,
             ..default()
         },
     ));
@@ -91,7 +91,7 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
     // Start loading guardian
     commands.insert_resource(SpriteToBeSpawned(
-        asset_server.load("overworld/2d/guardian.png"),
+        asset_server.load("overworld/2d/sprites/guardian.png"),
     ));
 }
 
