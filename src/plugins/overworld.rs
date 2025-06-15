@@ -75,7 +75,7 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
             clear_color: ClearColorConfig::Custom(Color::WHITE),
             ..default()
         },
-        Transform::from_xyz(0.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 3.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y),
         AmbientLight {
             brightness: 100.0,
             ..default()
