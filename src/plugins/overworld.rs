@@ -97,33 +97,32 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn finish_loading(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
     sprite_to_be_spawned: Res<SpriteToBeSpawned>,
+    mut asset_events: EventReader<AssetEvent<Image>>,
     mut sprite3d_params: Sprite3dParams,
     mut next_state: ResMut<NextState<OverworldState>>,
 ) {
-    if asset_server
-        .get_load_state(sprite_to_be_spawned.0.id())
-        .is_some_and(|asset| asset.is_loaded())
-    {
-        commands.spawn((
-            StateScoped(AppState::Overworld),
-            Sprite3dBuilder {
-                image: sprite_to_be_spawned.0.clone(),
-                pixels_per_metre: 180.0,
-                double_sided: false,
-                unlit: true,
-                ..default()
-            }
-            .bundle(&mut sprite3d_params),
-            Transform::from_xyz(0.0, 0.5, 0.0),
-            AccumulatedInput::default(),
-            Velocity::default(),
-            PhysicalTranslation(Vec3::new(0.0, 0.5, 0.0)),
-            PreviousPhysicalTranslation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
-        commands.remove_resource::<SpriteToBeSpawned>();
-        next_state.set(OverworldState::InGame);
+    for event in asset_events.read() {
+        if event.is_loaded_with_dependencies(sprite_to_be_spawned.0.id()) {
+            commands.spawn((
+                StateScoped(AppState::Overworld),
+                Sprite3dBuilder {
+                    image: sprite_to_be_spawned.0.clone(),
+                    pixels_per_metre: 180.0,
+                    double_sided: false,
+                    unlit: true,
+                    ..default()
+                }
+                .bundle(&mut sprite3d_params),
+                Transform::from_xyz(0.0, 0.5, 0.0),
+                AccumulatedInput::default(),
+                Velocity::default(),
+                PhysicalTranslation(Vec3::new(0.0, 0.5, 0.0)),
+                PreviousPhysicalTranslation(Vec3::new(0.0, 0.5, 0.0)),
+            ));
+            commands.remove_resource::<SpriteToBeSpawned>();
+            next_state.set(OverworldState::InGame);
+        }
     }
 }
 

@@ -41,7 +41,7 @@ fn main() {
             Sprite3dPlugin,
             FpsOverlayPlugin {
                 config: FpsOverlayConfig {
-                    text_color: Color::WHITE,
+                    text_color: Color::BLACK,
                     refresh_interval: Duration::from_secs(1),
                     ..default()
                 },
