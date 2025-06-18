@@ -27,6 +27,12 @@ impl Plugin for OverworldPlugin {
     }
 }
 
+// Constants
+/// Note: Based on current guardian sprite
+const SPRITE_PIXELS_PER_METER: f32 = 132.0;
+/// Note: Only applicable to gift plane
+const STARTING_TRANSLATION: Vec3 = Vec3::new(0.0, 180.0 / SPRITE_PIXELS_PER_METER * 0.5, 0.0);
+
 // Overworld Sub-States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
 #[source(AppState = AppState::Overworld)]
@@ -75,7 +81,7 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
             clear_color: ClearColorConfig::Custom(Color::WHITE),
             ..default()
         },
-        Transform::from_xyz(0.0, 3.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
         AmbientLight {
             brightness: 1000.0,
             ..default()
@@ -108,17 +114,17 @@ fn finish_loading(
                 StateScoped(AppState::Overworld),
                 Sprite3dBuilder {
                     image: sprite_to_be_spawned.0.clone(),
-                    pixels_per_metre: 180.0,
+                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
                     double_sided: false,
                     unlit: true,
                     ..default()
                 }
                 .bundle(&mut sprite3d_params),
-                Transform::from_xyz(0.0, 0.5, 0.0),
+                Transform::from_translation(STARTING_TRANSLATION),
                 AccumulatedInput::default(),
                 Velocity::default(),
-                PhysicalTranslation(Vec3::new(0.0, 0.5, 0.0)),
-                PreviousPhysicalTranslation(Vec3::new(0.0, 0.5, 0.0)),
+                PhysicalTranslation(STARTING_TRANSLATION),
+                PreviousPhysicalTranslation(STARTING_TRANSLATION),
             ));
             commands.remove_resource::<SpriteToBeSpawned>();
             next_state.set(OverworldState::InGame);
