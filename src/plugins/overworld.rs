@@ -8,10 +8,6 @@ impl Plugin for OverworldPlugin {
         app.add_sub_state::<OverworldState>()
             .add_systems(OnEnter(AppState::Overworld), setup_overworld)
             .add_systems(
-                Update,
-                finish_loading.run_if(in_state(OverworldState::Loading)),
-            )
-            .add_systems(
                 FixedUpdate,
                 advance_physics.run_if(in_state(OverworldState::InGame)),
             )
@@ -23,6 +19,14 @@ impl Plugin for OverworldPlugin {
                         .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
                 )
                     .run_if(in_state(OverworldState::InGame)),
+            )
+            .add_systems(
+                Update,
+                finish_loading.run_if(in_state(OverworldState::Loading)),
+            )
+            .add_systems(
+                Update,
+                follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
             );
     }
 }
@@ -46,6 +50,9 @@ enum OverworldState {
 // Components
 #[derive(Resource)]
 struct SpriteToBeSpawned(Handle<Image>);
+#[derive(Component)]
+struct Player;
+
 // Physics Components
 // https://github.com/bevyengine/bevy/blob/latest/examples/movement/physics_in_fixed_timestep.rs
 /// A vector representing the player's input, accumulated over all frames that ran
@@ -125,6 +132,7 @@ fn finish_loading(
                 Velocity::default(),
                 PhysicalTranslation(STARTING_TRANSLATION),
                 PreviousPhysicalTranslation(STARTING_TRANSLATION),
+                Player,
             ));
             commands.remove_resource::<SpriteToBeSpawned>();
             next_state.set(OverworldState::InGame);
@@ -154,7 +162,7 @@ fn handle_input(
         // Need to normalize and scale because otherwise
         // diagonal movement would be faster than horizontal or vertical movement.
         // This effectively averages the accumulated input.
-        velocity.0 = input.normalize_or_zero() * 2.0;
+        velocity.0 = input.normalize_or_zero() * 4.0;
     }
 }
 
@@ -204,5 +212,18 @@ fn interpolate_rendered_transform(
 
         let rendered_translation = previous.lerp(current, alpha);
         transform.translation = rendered_translation;
+    }
+}
+
+fn follow_player_with_camera(
+    player_transform: Single<&Transform, With<Player>>,
+    mut camera_transform: Single<&mut Transform, (With<Camera3d>, Without<Player>)>,
+) {
+    // Get the player's x distance to the camera.
+    let x_dist = player_transform.translation.x - camera_transform.translation.x;
+    if x_dist > 2.0 {
+        camera_transform.translation.x = player_transform.translation.x - 2.0;
+    } else if x_dist < -2.0 {
+        camera_transform.translation.x = player_transform.translation.x + 2.0;
     }
 }

@@ -179,29 +179,23 @@ fn setup_main_menu(
 }
 
 fn update_title_screen(
-    mut transforms: ParamSet<(
-        Single<&mut Transform, With<Title>>,
-        Single<&mut Transform, With<Gift>>,
-    )>,
+    mut title_transform: Single<&mut Transform, With<Title>>,
+    mut gift_transform: Single<&mut Transform, (With<Gift>, Without<Title>)>,
     mut flashing_text: Single<&mut Visibility, With<FlashingText>>,
     time: Res<Time>,
 ) {
     let seconds = time.elapsed_secs();
-    // Mutable access to the title transform
-    {
-        // See https://www.desmos.com/calculator/2ubcdcyfti for visualization
-        // 10 degrees max in each direction
-        let theta_y = sin(2.0 * PI * seconds) * cos(PI / 6.0 * seconds) * PI / 18.0;
-        // 10 degrees max in each direction
-        let theta_z = sin(2.0 * PI * seconds) * sin(PI / 6.0 * seconds) * PI / 18.0;
-        transforms.p0().rotation = Quat::from_euler(EulerRot::XYZEx, 0.0, theta_y, theta_z);
-    }
-    // Mutable access to the gift transform
-    {
-        // 10 degrees max in each direction
-        let theta_z = cos(2.0 * PI * seconds) * PI / 18.0;
-        transforms.p1().rotation = Quat::from_rotation_z(theta_z);
-    }
+
+    // See https://www.desmos.com/calculator/2ubcdcyfti for visualization
+    // 10 degrees max in each direction
+    let theta_y = sin(2.0 * PI * seconds) * cos(PI / 6.0 * seconds) * PI / 18.0;
+    // 10 degrees max in each direction
+    let theta_z = sin(2.0 * PI * seconds) * sin(PI / 6.0 * seconds) * PI / 18.0;
+    title_transform.rotation = Quat::from_euler(EulerRot::XYZEx, 0.0, theta_y, theta_z);
+
+    // 10 degrees max in each direction
+    let theta_z = cos(2.0 * PI * seconds) * PI / 18.0;
+    gift_transform.rotation = Quat::from_rotation_z(theta_z);
 
     // Flash text every second
     if (seconds as i32) % 2 == 0 {
