@@ -4,9 +4,22 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Both client and server
+quinn = "0.11.8"
+tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
+tracing = "0.1.41"
+tracing-futures = "0.2.5"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+anyhow = "1.0.98"
+# Client
 bevy = { version = "0.16.1", features = ["bevy_dev_tools"] }
 bevy_obj = "0.16.1"
 bevy_sprite3d = "5.0.0"
+# Server
+clap = { version = "4.5.40", features = ["derive"] }
+rustls-pki-types = "1.12.0"
+
+
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]
