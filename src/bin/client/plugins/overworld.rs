@@ -1,7 +1,9 @@
 use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
-use quinn::{rustls, ClientConfig, Endpoint};
+use bincode::{decode_from_slice, encode_to_vec};
+use miniscop::networking::{PacketType, PACKET_CONFIG};
+use quinn::{rustls, ClientConfig, Endpoint, VarInt};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::lookup_host;
 use tokio::runtime::{Builder, Runtime};
@@ -58,6 +60,8 @@ enum OverworldState {
 // Resources
 #[derive(Resource)]
 struct SpriteToBeSpawned(Handle<Image>);
+/// This resource keeps the async server connection alive. When it is removed, the client will time out from the server.
+// Todo: Add a better way of disconnecting
 #[derive(Resource)]
 struct AsyncRuntime(Runtime);
 
@@ -129,50 +133,6 @@ fn setup_async_runtime(mut commands: Commands) {
         }
     });
     commands.insert_resource(AsyncRuntime(runtime));
-}
-
-#[tracing::instrument()]
-async fn connect_to_server() -> anyhow::Result<()> {
-    let endpoint = Endpoint::client(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))?;
-
-    const URL: &str = "miniscop.twilightparadox.com";
-    let server_address = lookup_host((URL, 4433))
-        .await?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Could not resolve the server's IP address"))?;
-    info!("Connecting to {}", server_address);
-
-    // Rustls needs to get the computer's crypto provider first, or else Quinn will crash the program.
-    // https://github.com/quinn-rs/quinn/issues/2275
-    rustls::client::ClientConfig::builder();
-
-    let connection = endpoint
-        .connect_with(ClientConfig::with_platform_verifier(), server_address, URL)
-        .map_err(|e| anyhow::anyhow!("Connection configuration error: {:?}", e))?
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {:?}", e))?;
-
-    let (mut send, mut recv) = connection
-        .accept_bi()
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to accept stream: {:?}", e))?;
-
-    let mut buf = [0u8; "Hello from server".len()];
-    recv.read_exact(&mut buf)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to read from stream: {:?}", e))?;
-    let msg = String::from_utf8_lossy(&buf);
-    info!("Received: {}", msg);
-
-    send.write_all("Hello from client".as_bytes())
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to write to the stream: {:?}", e))?;
-    send.finish()?;
-
-    loop {
-        let _recv = connection.accept_uni().await?;
-        info!("Received packet");
-    }
 }
 
 fn finish_loading(
@@ -297,4 +257,42 @@ fn follow_player_with_camera(
 
 fn stop_async_runtime(mut commands: Commands) {
     commands.remove_resource::<AsyncRuntime>();
+}
+
+// Non-system functions
+#[tracing::instrument()]
+async fn connect_to_server() -> anyhow::Result<()> {
+    let endpoint = Endpoint::client(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))?;
+
+    const URL: &str = "miniscop.twilightparadox.com";
+    let server_address = lookup_host((URL, 4433))
+        .await?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve the server's IP address"))?;
+    info!("Connecting to {}", server_address);
+
+    // Rustls needs to get the computer's crypto provider first, or else Quinn will panic.
+    // https://github.com/quinn-rs/quinn/issues/2275
+    rustls::client::ClientConfig::builder();
+
+    let connection = endpoint
+        .connect_with(ClientConfig::with_platform_verifier(), server_address, URL)
+        .map_err(|e| anyhow::anyhow!("Connection configuration error: {:?}", e))?
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {:?}", e))?;
+    info!("Connected to {}", server_address);
+
+    let mut recv = connection.accept_uni().await?;
+    let packet = recv.read_to_end(64).await?;
+    let (packet, len): (PacketType, usize) = decode_from_slice(packet.as_slice(), PACKET_CONFIG)?;
+
+    info!("Received {:?} from {:?} bytes", packet, len);
+
+    connection.close(
+        VarInt::from_u32(0),
+        encode_to_vec("Client says goodbye!", PACKET_CONFIG)?.as_slice(),
+    );
+    endpoint.wait_idle().await;
+
+    Ok(())
 }

@@ -1,5 +1,7 @@
 use anyhow;
+use bincode::encode_to_vec;
 use clap::Parser;
+use miniscop::networking::{PacketType, PACKET_CONFIG};
 use quinn::{Endpoint, ServerConfig};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -59,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
             info!("Accepting connection from {}", incoming.remote_address());
             tokio::spawn(async move {
                 if let Err(e) = handle_connection(incoming).await {
-                    error!("Connection failed: {:?}", e)
+                    error!("Connection error: {:?}", e)
                 }
             });
         }
@@ -68,27 +70,24 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(name = "connection", skip(incoming), fields(address = %incoming.remote_address()))]
+#[tracing::instrument(skip(incoming), fields(address = %incoming.remote_address()))]
 async fn handle_connection(incoming: quinn::Incoming) -> anyhow::Result<()> {
     let connection = incoming.await?;
     info!("Established connection");
 
-    let (mut send, mut recv) = match connection.open_bi().await {
-        Err(quinn::ConnectionError::ApplicationClosed { .. }) => {
-            info!("Connection closed by client");
-            return Ok(());
-        }
-        Err(e) => return Err(e.into()),
-        Ok(s) => s,
+    let mut send = connection.open_uni().await?;
+    let packet = PacketType::PlayerPosition {
+        x: 1.0,
+        y: 180.0 / 132.0,
+        z: 1.0,
     };
-
-    send.write_all("Hello from server".as_bytes()).await?;
+    let packet = encode_to_vec(packet, PACKET_CONFIG)?;
+    info!("Sending a message of {} bytes", packet.len());
+    send.write_all(packet.as_slice()).await?;
     send.finish()?;
 
-    let mut buf = [0u8; "Hello from client".len()];
-    recv.read_exact(&mut buf).await?;
-    let msg = String::from_utf8_lossy(&buf);
-    info!("Received: {}", msg);
+    let close_reason = connection.closed().await;
+    info!("Connection closed: {:?}", close_reason);
 
     Ok(())
 }
