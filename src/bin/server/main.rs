@@ -3,11 +3,9 @@ use clap::Parser;
 use quinn::{Endpoint, ServerConfig};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use std::error::Error;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tracing::{error, info};
-use tracing_futures::Instrument;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -89,7 +87,7 @@ async fn handle_connection(incoming: quinn::Incoming) -> anyhow::Result<()> {
     };
 
     send.write_all("Hello from server".as_bytes()).await?;
-    send.finish();
+    send.finish()?;
 
     let mut buf = [0u8; "Hello from client".len()];
     recv.read_exact(&mut buf).await?;

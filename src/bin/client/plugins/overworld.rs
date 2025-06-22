@@ -1,12 +1,19 @@
 use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
+use quinn::{ClientConfig, Endpoint};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4};
+use tokio::net::lookup_host;
+use tokio::runtime::{Builder, Runtime};
 
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<OverworldState>()
-            .add_systems(OnEnter(AppState::Overworld), setup_overworld)
+            .add_systems(
+                OnEnter(AppState::Overworld),
+                (setup_overworld, setup_async_runtime),
+            )
             .add_systems(
                 FixedUpdate,
                 advance_physics.run_if(in_state(OverworldState::InGame)),
@@ -27,7 +34,8 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 Update,
                 follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
-            );
+            )
+            .add_systems(OnExit(AppState::Overworld), stop_async_runtime);
     }
 }
 
@@ -47,9 +55,13 @@ enum OverworldState {
     InGame,
 }
 
-// Components
+// Resources
 #[derive(Resource)]
 struct SpriteToBeSpawned(Handle<Image>);
+#[derive(Resource)]
+struct AsyncRuntime(Runtime);
+
+// Components
 #[derive(Component)]
 struct Player;
 
@@ -106,6 +118,54 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.insert_resource(SpriteToBeSpawned(
         asset_server.load("overworld/2d/sprites/guardian.png"),
     ));
+}
+
+fn setup_async_runtime(mut commands: Commands) {
+    let runtime = Builder::new_multi_thread().enable_all().build().unwrap();
+    // Connect to server
+    runtime.block_on(async move {
+        if let Err(e) = connect_to_server().await {
+            error!("Connection error: {:?}", e);
+        }
+    });
+    commands.insert_resource(AsyncRuntime(runtime));
+}
+
+#[tracing::instrument()]
+async fn connect_to_server() -> anyhow::Result<()> {
+    let mut endpoint = Endpoint::client((Ipv6Addr::UNSPECIFIED, 0).into())?;
+
+    const URL: &str = "miniscop.twilightparadox.com";
+    let server_address = lookup_host((URL, 4433))
+        .await?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Could not resolve the server's IP address"))?;
+    info!("Connecting to {}", server_address);
+
+    let connection = endpoint
+        .connect_with(ClientConfig::with_platform_verifier(), server_address, URL)
+        .map_err(|e| anyhow::anyhow!("Connection configuration error: {:?}", e))?
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {:?}", e))?;
+    //
+    // let (mut send, mut recv) = connection
+    //     .accept_bi()
+    //     .await
+    //     .map_err(|e| anyhow::anyhow!("Failed to accept stream: {:?}", e))?;
+    //
+    // let mut buf = [0u8; "Hello from server".len()];
+    // recv.read_exact(&mut buf)
+    //     .await
+    //     .map_err(|e| anyhow::anyhow!("Failed to read from stream: {:?}", e))?;
+    // let msg = String::from_utf8_lossy(&buf);
+    // info!("Received: {}", msg);
+    //
+    // send.write_all("Hello from client".as_bytes())
+    //     .await
+    //     .map_err(|e| anyhow::anyhow!("Failed to write to the stream: {:?}", e))?;
+    // send.finish()?;
+
+    Ok(())
 }
 
 fn finish_loading(
@@ -226,4 +286,8 @@ fn follow_player_with_camera(
     } else if x_dist < -2.0 {
         camera_transform.translation.x = player_transform.translation.x + 2.0;
     }
+}
+
+fn stop_async_runtime(mut commands: Commands) {
+    commands.remove_resource::<AsyncRuntime>();
 }
