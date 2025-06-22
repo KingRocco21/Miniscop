@@ -3,22 +3,6 @@
 version = 4
 
 [[package]]
-name = "Miniscop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bevy",
- "bevy_obj",
- "bevy_sprite3d",
- "clap",
- "quinn",
- "rustls-pki-types",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "accesskit"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2923,6 +2907,22 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
+
+[[package]]
+name = "miniscop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bevy",
+ "bevy_obj",
+ "bevy_sprite3d",
+ "clap",
+ "quinn",
+ "rustls-pki-types",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "miniz_oxide"

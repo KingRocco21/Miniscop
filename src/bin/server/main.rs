@@ -30,12 +30,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing::subscriber::set_global_default(
-        tracing_subscriber::FmtSubscriber::builder()
-            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-            .finish(),
-    )
-    .unwrap();
+    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::new())?;
 
     let args = Args::parse();
 
@@ -46,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
     let server_config = ServerConfig::with_single_cert(certificate_chain, key)?;
     let endpoint = Endpoint::server(server_config, args.address)?;
 
+    info!("Waiting for connections...");
     while let Some(incoming) = endpoint.accept().await {
         if endpoint.open_connections() > args.max_players {
             info!(

@@ -2,7 +2,7 @@ use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
 use quinn::{rustls, ClientConfig, Endpoint};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::lookup_host;
 use tokio::runtime::{Builder, Runtime};
 
@@ -133,7 +133,7 @@ fn setup_async_runtime(mut commands: Commands) {
 
 #[tracing::instrument()]
 async fn connect_to_server() -> anyhow::Result<()> {
-    let mut endpoint = Endpoint::client((Ipv6Addr::UNSPECIFIED, 0).into())?;
+    let endpoint = Endpoint::client(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))?;
 
     const URL: &str = "miniscop.twilightparadox.com";
     let server_address = lookup_host((URL, 4433))
@@ -151,25 +151,28 @@ async fn connect_to_server() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Connection configuration error: {:?}", e))?
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to server: {:?}", e))?;
-    //
-    // let (mut send, mut recv) = connection
-    //     .accept_bi()
-    //     .await
-    //     .map_err(|e| anyhow::anyhow!("Failed to accept stream: {:?}", e))?;
-    //
-    // let mut buf = [0u8; "Hello from server".len()];
-    // recv.read_exact(&mut buf)
-    //     .await
-    //     .map_err(|e| anyhow::anyhow!("Failed to read from stream: {:?}", e))?;
-    // let msg = String::from_utf8_lossy(&buf);
-    // info!("Received: {}", msg);
-    //
-    // send.write_all("Hello from client".as_bytes())
-    //     .await
-    //     .map_err(|e| anyhow::anyhow!("Failed to write to the stream: {:?}", e))?;
-    // send.finish()?;
 
-    Ok(())
+    let (mut send, mut recv) = connection
+        .accept_bi()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to accept stream: {:?}", e))?;
+
+    let mut buf = [0u8; "Hello from server".len()];
+    recv.read_exact(&mut buf)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to read from stream: {:?}", e))?;
+    let msg = String::from_utf8_lossy(&buf);
+    info!("Received: {}", msg);
+
+    send.write_all("Hello from client".as_bytes())
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to write to the stream: {:?}", e))?;
+    send.finish()?;
+
+    loop {
+        let _recv = connection.accept_uni().await?;
+        info!("Received packet");
+    }
 }
 
 fn finish_loading(
