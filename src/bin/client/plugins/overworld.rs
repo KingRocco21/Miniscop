@@ -1,7 +1,7 @@
 use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
-use quinn::{ClientConfig, Endpoint};
+use quinn::{rustls, ClientConfig, Endpoint};
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4};
 use tokio::net::lookup_host;
 use tokio::runtime::{Builder, Runtime};
@@ -123,7 +123,7 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
 fn setup_async_runtime(mut commands: Commands) {
     let runtime = Builder::new_multi_thread().enable_all().build().unwrap();
     // Connect to server
-    runtime.block_on(async move {
+    runtime.spawn(async move {
         if let Err(e) = connect_to_server().await {
             error!("Connection error: {:?}", e);
         }
@@ -141,6 +141,10 @@ async fn connect_to_server() -> anyhow::Result<()> {
         .next()
         .ok_or_else(|| anyhow::anyhow!("Could not resolve the server's IP address"))?;
     info!("Connecting to {}", server_address);
+
+    // Rustls needs to get the computer's crypto provider first, or else Quinn will crash the program.
+    // https://github.com/quinn-rs/quinn/issues/2275
+    rustls::client::ClientConfig::builder();
 
     let connection = endpoint
         .connect_with(ClientConfig::with_platform_verifier(), server_address, URL)
