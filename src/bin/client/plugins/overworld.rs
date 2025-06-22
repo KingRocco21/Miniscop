@@ -2,11 +2,14 @@ use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
 use bincode::{decode_from_slice, encode_to_vec};
-use miniscop::networking::{PacketType, PACKET_CONFIG};
+use miniscop::networking::{Packet, PACKET_CONFIG};
 use quinn::{rustls, ClientConfig, Endpoint, VarInt};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::lookup_host;
 use tokio::runtime::{Builder, Runtime};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::task::JoinHandle;
 
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
@@ -63,7 +66,11 @@ struct SpriteToBeSpawned(Handle<Image>);
 /// This resource keeps the async server connection alive. When it is removed, the client will time out from the server.
 // Todo: Add a better way of disconnecting
 #[derive(Resource)]
-struct AsyncRuntime(Runtime);
+struct ServerConnection {
+    runtime: Runtime,
+    connection_handle: JoinHandle<()>,
+    packet_sender: Sender<Packet>,
+}
 
 // Components
 #[derive(Component)]
@@ -126,13 +133,19 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn setup_async_runtime(mut commands: Commands) {
     let runtime = Builder::new_multi_thread().enable_all().build().unwrap();
+    let (tx, rx) = mpsc::channel::<Packet>(16);
     // Connect to server
-    runtime.spawn(async move {
-        if let Err(e) = connect_to_server().await {
+    let connection_handle = runtime.spawn(async move {
+        if let Err(e) = connect_to_server(rx).await {
             error!("Connection error: {:?}", e);
         }
     });
-    commands.insert_resource(AsyncRuntime(runtime));
+
+    commands.insert_resource(ServerConnection {
+        runtime,
+        connection_handle,
+        packet_sender: tx,
+    });
 }
 
 fn finish_loading(
@@ -256,12 +269,12 @@ fn follow_player_with_camera(
 }
 
 fn stop_async_runtime(mut commands: Commands) {
-    commands.remove_resource::<AsyncRuntime>();
+    commands.remove_resource::<ServerConnection>();
 }
 
 // Non-system functions
 #[tracing::instrument()]
-async fn connect_to_server() -> anyhow::Result<()> {
+async fn connect_to_server(mut bevy_receiver: Receiver<Packet>) -> anyhow::Result<()> {
     let endpoint = Endpoint::client(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))?;
 
     const URL: &str = "miniscop.twilightparadox.com";
@@ -284,7 +297,7 @@ async fn connect_to_server() -> anyhow::Result<()> {
 
     let mut recv = connection.accept_uni().await?;
     let packet = recv.read_to_end(64).await?;
-    let (packet, len): (PacketType, usize) = decode_from_slice(packet.as_slice(), PACKET_CONFIG)?;
+    let (packet, len): (Packet, usize) = decode_from_slice(packet.as_slice(), PACKET_CONFIG)?;
 
     info!("Received {:?} from {:?} bytes", packet, len);
 

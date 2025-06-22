@@ -1,7 +1,7 @@
 use anyhow;
 use bincode::encode_to_vec;
 use clap::Parser;
-use miniscop::networking::{PacketType, PACKET_CONFIG};
+use miniscop::networking::{Packet, PACKET_CONFIG};
 use quinn::{Endpoint, ServerConfig};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -76,7 +76,7 @@ async fn handle_connection(incoming: quinn::Incoming) -> anyhow::Result<()> {
     info!("Established connection");
 
     let mut send = connection.open_uni().await?;
-    let packet = PacketType::PlayerPosition {
+    let packet = Packet::PlayerPosition {
         x: 1.0,
         y: 180.0 / 132.0,
         z: 1.0,
