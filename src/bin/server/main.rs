@@ -26,6 +26,7 @@ struct Args {
     address: SocketAddr,
     // Todo: Add optional file path to .txt file with banned client IPs
     /// Maximum number of allowed players.
+    /// If you increase this past 100, you risk overwhelming your players with packets.
     #[clap(short, long, default_value = "100")]
     max_players: usize,
 }

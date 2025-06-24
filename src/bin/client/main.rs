@@ -10,6 +10,7 @@ use bevy_obj::ObjPlugin;
 use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
 
+mod networking;
 mod plugins;
 mod states;
 

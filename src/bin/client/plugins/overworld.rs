@@ -1,15 +1,7 @@
+use crate::networking::{setup_client_runtime, stop_client_runtime};
 use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
-use bincode::{decode_from_slice, encode_to_vec};
-use miniscop::networking::{Packet, PACKET_CONFIG};
-use quinn::{rustls, ClientConfig, Endpoint, VarInt};
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use tokio::net::lookup_host;
-use tokio::runtime::{Builder, Runtime};
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::task::JoinHandle;
 
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
@@ -17,7 +9,7 @@ impl Plugin for OverworldPlugin {
         app.add_sub_state::<OverworldState>()
             .add_systems(
                 OnEnter(AppState::Overworld),
-                (setup_overworld, setup_async_runtime),
+                (setup_overworld, setup_client_runtime),
             )
             .add_systems(
                 FixedUpdate,
@@ -40,7 +32,7 @@ impl Plugin for OverworldPlugin {
                 Update,
                 follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
             )
-            .add_systems(OnExit(AppState::Overworld), stop_async_runtime);
+            .add_systems(OnExit(AppState::Overworld), stop_client_runtime);
     }
 }
 
@@ -63,14 +55,6 @@ enum OverworldState {
 // Resources
 #[derive(Resource)]
 struct SpriteToBeSpawned(Handle<Image>);
-/// This resource keeps the async server connection alive. When it is removed, the client will time out from the server.
-// Todo: Add a better way of disconnecting
-#[derive(Resource)]
-struct ServerConnection {
-    runtime: Runtime,
-    connection_handle: JoinHandle<()>,
-    packet_sender: Sender<Packet>,
-}
 
 // Components
 #[derive(Component)]
@@ -131,23 +115,6 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
     ));
 }
 
-fn setup_async_runtime(mut commands: Commands) {
-    let runtime = Builder::new_multi_thread().enable_all().build().unwrap();
-    let (tx, rx) = mpsc::channel::<Packet>(16);
-    // Connect to server
-    let connection_handle = runtime.spawn(async move {
-        if let Err(e) = connect_to_server(rx).await {
-            error!("Connection error: {:?}", e);
-        }
-    });
-
-    commands.insert_resource(ServerConnection {
-        runtime,
-        connection_handle,
-        packet_sender: tx,
-    });
-}
-
 fn finish_loading(
     mut commands: Commands,
     sprite_to_be_spawned: Res<SpriteToBeSpawned>,
@@ -199,10 +166,8 @@ fn handle_input(
             input.x += 1.0;
         }
 
-        // Need to normalize and scale because otherwise
-        // diagonal movement would be faster than horizontal or vertical movement.
-        // This effectively averages the accumulated input.
-        velocity.0 = input.normalize_or_zero() * 4.0;
+        // If you want to normalize the input, do input.normalize_or_zero() instead of clamping.
+        velocity.0 = input.clamp(Vec3::NEG_ONE, Vec3::ONE) * 4.0;
     }
 }
 
@@ -268,44 +233,4 @@ fn follow_player_with_camera(
     }
 }
 
-fn stop_async_runtime(mut commands: Commands) {
-    commands.remove_resource::<ServerConnection>();
-}
-
-// Non-system functions
-#[tracing::instrument()]
-async fn connect_to_server(mut bevy_receiver: Receiver<Packet>) -> anyhow::Result<()> {
-    let endpoint = Endpoint::client(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))?;
-
-    const URL: &str = "miniscop.twilightparadox.com";
-    let server_address = lookup_host((URL, 4433))
-        .await?
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Could not resolve the server's IP address"))?;
-    info!("Connecting to {}", server_address);
-
-    // Rustls needs to get the computer's crypto provider first, or else Quinn will panic.
-    // https://github.com/quinn-rs/quinn/issues/2275
-    rustls::client::ClientConfig::builder();
-
-    let connection = endpoint
-        .connect_with(ClientConfig::with_platform_verifier(), server_address, URL)
-        .map_err(|e| anyhow::anyhow!("Connection configuration error: {:?}", e))?
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {:?}", e))?;
-    info!("Connected to {}", server_address);
-
-    let mut recv = connection.accept_uni().await?;
-    let packet = recv.read_to_end(64).await?;
-    let (packet, len): (Packet, usize) = decode_from_slice(packet.as_slice(), PACKET_CONFIG)?;
-
-    info!("Received {:?} from {:?} bytes", packet, len);
-
-    connection.close(
-        VarInt::from_u32(0),
-        encode_to_vec("Client says goodbye!", PACKET_CONFIG)?.as_slice(),
-    );
-    endpoint.wait_idle().await;
-
-    Ok(())
-}
+// Events
