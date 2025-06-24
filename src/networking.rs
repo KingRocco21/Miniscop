@@ -4,10 +4,9 @@ use bincode::{encode_to_vec, Encode};
 use quinn::{RecvStream, SendStream};
 
 pub const PACKET_CONFIG: Configuration = config::standard();
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Debug, Copy, Clone)]
 pub enum Packet {
-    PlayerJoin { id: u32 },
-    PlayerPosition { x: f32, y: f32, z: f32 },
+    PlayerPosition { id: u32, x: f32, y: f32, z: f32 },
 }
 
 #[tracing::instrument]

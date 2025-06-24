@@ -1,7 +1,7 @@
 use anyhow;
-use bincode::encode_to_vec;
 use clap::Parser;
-use miniscop::networking::{Packet, PACKET_CONFIG};
+use miniscop::networking::Packet::PlayerPosition;
+use miniscop::networking::{receive_packet, send_packet};
 use quinn::{Endpoint, ServerConfig};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
                 "Requiring {} to validate its address",
                 incoming.remote_address()
             );
-            incoming.retry().unwrap();
+            incoming.retry()?;
         } else {
             info!("Accepting connection from {}", incoming.remote_address());
             tokio::spawn(async move {
@@ -76,19 +76,22 @@ async fn handle_connection(incoming: quinn::Incoming) -> anyhow::Result<()> {
     let connection = incoming.await?;
     info!("Established connection");
 
-    let mut send = connection.open_uni().await?;
-    let packet = Packet::PlayerPosition {
-        x: 1.0,
-        y: 180.0 / 132.0,
-        z: 1.0,
-    };
-    let packet = encode_to_vec(packet, PACKET_CONFIG)?;
-    info!("Sending a message of {} bytes", packet.len());
-    send.write_all(packet.as_slice()).await?;
-    send.finish()?;
-
-    let close_reason = connection.closed().await;
-    info!("Connection closed: {:?}", close_reason);
-
-    Ok(())
+    // This loop ends when an error occurs.
+    loop {
+        let recv = connection.accept_uni().await?;
+        let packet = receive_packet(recv).await?;
+        match packet {
+            PlayerPosition { id, x, y, z } => {
+                let new_packet = PlayerPosition {
+                    id,
+                    x: x + 2.0,
+                    y,
+                    z,
+                };
+                let send = connection.open_uni().await?;
+                send_packet(send, new_packet).await?;
+            }
+        }
+    }
+    // Todo: Identify which client disconnected when they disconnect
 }

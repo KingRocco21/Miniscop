@@ -1,19 +1,32 @@
-use crate::networking::{setup_client_runtime, stop_client_runtime};
+use crate::networking::{setup_client_runtime, stop_client_runtime, ServerConnection};
 use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
+use miniscop::networking::Packet;
+use tokio::sync::mpsc::error::TrySendError;
 
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<OverworldState>()
+            .add_event::<OtherPlayerMoved>()
             .add_systems(
                 OnEnter(AppState::Overworld),
                 (setup_overworld, setup_client_runtime),
             )
             .add_systems(
                 FixedUpdate,
-                advance_physics.run_if(in_state(OverworldState::InGame)),
+                (
+                    (
+                        // These must be run in this order because each one is dependent on the next.
+                        read_packets,
+                        on_other_player_moved,
+                        advance_physics.run_if(in_state(OverworldState::InGame)),
+                    )
+                        .chain(),
+                    send_current_position,
+                )
+                    .run_if(in_state(AppState::Overworld)),
             )
             .add_systems(
                 RunFixedMainLoop,
@@ -54,11 +67,15 @@ enum OverworldState {
 
 // Resources
 #[derive(Resource)]
-struct SpriteToBeSpawned(Handle<Image>);
+struct GuardianSprite(Handle<Image>);
 
 // Components
 #[derive(Component)]
 struct Player;
+#[derive(Component)]
+struct OtherPlayer {
+    id: u32,
+}
 
 // Physics Components
 // https://github.com/bevyengine/bevy/blob/latest/examples/movement/physics_in_fixed_timestep.rs
@@ -110,24 +127,24 @@ fn setup_overworld(mut commands: Commands, asset_server: Res<AssetServer>) {
         Transform::default(),
     ));
     // Start loading guardian
-    commands.insert_resource(SpriteToBeSpawned(
+    commands.insert_resource(GuardianSprite(
         asset_server.load("overworld/2d/sprites/guardian.png"),
     ));
 }
 
 fn finish_loading(
     mut commands: Commands,
-    sprite_to_be_spawned: Res<SpriteToBeSpawned>,
+    guardian_sprite: Res<GuardianSprite>,
     mut asset_events: EventReader<AssetEvent<Image>>,
     mut sprite3d_params: Sprite3dParams,
     mut next_state: ResMut<NextState<OverworldState>>,
 ) {
     for event in asset_events.read() {
-        if event.is_loaded_with_dependencies(sprite_to_be_spawned.0.id()) {
+        if event.is_loaded_with_dependencies(guardian_sprite.0.id()) {
             commands.spawn((
                 StateScoped(AppState::Overworld),
                 Sprite3dBuilder {
-                    image: sprite_to_be_spawned.0.clone(),
+                    image: guardian_sprite.0.clone(),
                     pixels_per_metre: SPRITE_PIXELS_PER_METER,
                     double_sided: false,
                     unlit: true,
@@ -141,7 +158,6 @@ fn finish_loading(
                 PreviousPhysicalTranslation(STARTING_TRANSLATION),
                 Player,
             ));
-            commands.remove_resource::<SpriteToBeSpawned>();
             next_state.set(OverworldState::InGame);
         }
     }
@@ -234,3 +250,84 @@ fn follow_player_with_camera(
 }
 
 // Events
+#[derive(Event)]
+struct OtherPlayerMoved {
+    id: u32,
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+/// This system reads incoming packets, and fires a matching event for each one.
+#[tracing::instrument(skip(connection, player_moved))]
+fn read_packets(
+    mut connection: ResMut<ServerConnection>,
+    mut player_moved: EventWriter<OtherPlayerMoved>,
+) {
+    // let time = Instant::now();
+    while let Ok(packet) = connection.from_server.try_recv() {
+        match packet {
+            Packet::PlayerPosition { id, x, y, z } => {
+                player_moved.write(OtherPlayerMoved { id, x, y, z });
+            }
+        }
+    }
+    // info!("Took {:?}", time.elapsed());
+}
+
+fn send_current_position(
+    connection: Res<ServerConnection>,
+    position: Single<&PhysicalTranslation>,
+) {
+    // Only send packets if connected to server
+    if connection.handle.is_finished() {
+        let packet = Packet::PlayerPosition {
+            id: 0,
+            x: position.x,
+            y: position.y,
+            z: position.z,
+        };
+
+        if let Err(TrySendError::Full(_)) = connection.to_client.try_send(packet) {
+            panic!(
+                "Packet channel to async should never be full.\nIf you see this, please report this error so the dev can consider increasing channel size."
+            )
+        }
+    }
+}
+
+/// This system updates the transforms of other players, and spawns the player if they don't exist yet.
+fn on_other_player_moved(
+    mut commands: Commands,
+    guardian_sprite: Res<GuardianSprite>,
+    mut sprite3d_params: Sprite3dParams,
+    mut player_moved: EventReader<OtherPlayerMoved>,
+    mut query: Query<(&OtherPlayer, &mut Transform)>,
+) {
+    for movement in player_moved.read() {
+        let mut found_player = false;
+        for (other_player, mut transform) in query.iter_mut() {
+            if other_player.id == movement.id {
+                // Todo: Add PhysicalTranslation for smooth movement onscreen. Careful though, advance_physics doesn't run when the game is paused!
+                let translation = Vec3::new(movement.x, movement.y, movement.z);
+                transform.translation = translation;
+                found_player = true;
+            }
+        }
+        if !found_player {
+            commands.spawn((
+                StateScoped(AppState::Overworld),
+                OtherPlayer { id: movement.id },
+                Sprite3dBuilder {
+                    image: guardian_sprite.0.clone(),
+                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
+                    double_sided: false,
+                    unlit: true,
+                    ..default()
+                }
+                .bundle(&mut sprite3d_params),
+                Transform::from_xyz(movement.x, movement.y, movement.z),
+            ));
+        }
+    }
+}

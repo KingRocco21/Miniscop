@@ -5,6 +5,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::lookup_host;
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
@@ -13,16 +14,16 @@ use tokio::task::JoinHandle;
 #[derive(Resource)]
 pub(crate) struct ServerConnection {
     runtime: Runtime,
-    connection_handle: JoinHandle<anyhow::Result<(Endpoint, Connection)>>,
-    to_client: Sender<Packet>,
-    from_server: Receiver<Packet>,
+    pub handle: JoinHandle<anyhow::Result<(Endpoint, Connection)>>,
+    pub to_client: Sender<Packet>,
+    pub from_server: Receiver<Packet>,
 }
 impl ServerConnection {
     /// Try to gracefully disconnect from the server, printing info if the method fails.
     ///
     /// You can force a disconnection by removing the ServerConnection resource.
     pub(crate) fn try_disconnect(&mut self) {
-        match self.runtime.block_on(&mut self.connection_handle) {
+        match self.runtime.block_on(&mut self.handle) {
             Ok(output) => match output {
                 Ok((endpoint, connection)) => {
                     connection.close(VarInt::from_u32(0), b"Client disconnected normally");
@@ -63,7 +64,7 @@ pub(crate) fn setup_client_runtime(mut commands: Commands) {
 
     commands.insert_resource(ServerConnection {
         runtime,
-        connection_handle,
+        handle: connection_handle,
         to_client,
         from_server,
     });
@@ -158,8 +159,13 @@ pub(crate) async fn await_server_packets(
         tokio::spawn(async move {
             match receive_packet(recv).await {
                 Ok(packet) => {
-                    if let Err(e) = to_bevy_clone.send(packet).await {
-                        error!("Failed to send packet to bevy: {:?}", e);
+                    if let Err(TrySendError::Full(_)) = to_bevy_clone.try_send(packet) {
+                        error!(
+                            "Failed to send packet to Bevy because channel is full.\nIf you see this, please report this error so the dev can consider increasing channel size.\nAwaiting space in the channel..."
+                        );
+                        if let Err(_) = to_bevy_clone.send(packet).await {
+                            info!("Channel to Bevy closed, async loop will close next iteration");
+                        }
                     }
                 }
                 Err(e) => error!("Failed to receive packet from server: {:?}", e),
