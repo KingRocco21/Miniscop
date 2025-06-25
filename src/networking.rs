@@ -6,7 +6,8 @@ use quinn::{RecvStream, SendStream};
 pub const PACKET_CONFIG: Configuration = config::standard();
 #[derive(Encode, Decode, Debug, Copy, Clone)]
 pub enum Packet {
-    PlayerPosition { id: u32, x: f32, y: f32, z: f32 },
+    AssignClientId(u64),
+    PlayerPosition { id: u64, x: f32, y: f32, z: f32 },
 }
 
 #[tracing::instrument]

@@ -1,4 +1,4 @@
-use crate::networking::{setup_client_runtime, stop_client_runtime, ServerConnection};
+use crate::networking::{setup_client_runtime, stop_client_runtime, ClientId, ServerConnection};
 use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
@@ -74,7 +74,7 @@ struct GuardianSprite(Handle<Image>);
 struct Player;
 #[derive(Component)]
 struct OtherPlayer {
-    id: u32,
+    id: u64,
 }
 
 // Physics Components
@@ -252,21 +252,23 @@ fn follow_player_with_camera(
 // Events
 #[derive(Event)]
 struct OtherPlayerMoved {
-    id: u32,
+    id: u64,
     x: f32,
     y: f32,
     z: f32,
 }
 
 /// This system reads incoming packets, and fires a matching event for each one.
-#[tracing::instrument(skip(connection, player_moved))]
+#[tracing::instrument(skip(commands, connection, player_moved))]
 fn read_packets(
+    mut commands: Commands,
     mut connection: ResMut<ServerConnection>,
     mut player_moved: EventWriter<OtherPlayerMoved>,
 ) {
     // let time = Instant::now();
     while let Ok(packet) = connection.from_server.try_recv() {
         match packet {
+            Packet::AssignClientId(id) => commands.insert_resource(ClientId(id)),
             Packet::PlayerPosition { id, x, y, z } => {
                 player_moved.write(OtherPlayerMoved { id, x, y, z });
             }
@@ -276,22 +278,28 @@ fn read_packets(
 }
 
 fn send_current_position(
+    mut commands: Commands,
     connection: Res<ServerConnection>,
+    id: Option<Res<ClientId>>,
     position: Single<&PhysicalTranslation>,
 ) {
-    // Only send packets if connected to server
-    if connection.handle.is_finished() {
+    // Only try to send packets if connected to server and received ID
+    if let Some(id) = id {
         let packet = Packet::PlayerPosition {
-            id: 0,
+            id: id.0,
             x: position.x,
             y: position.y,
             z: position.z,
         };
-
-        if let Err(TrySendError::Full(_)) = connection.to_client.try_send(packet) {
-            panic!(
-                "Packet channel to async should never be full.\nIf you see this, please report this error so the dev can consider increasing channel size."
-            )
+        match connection.to_client.try_send(packet) {
+            Ok(_) => {}
+            Err(TrySendError::Full(_)) => {
+                info!("Packet channel is full, packet not sent.");
+            }
+            Err(TrySendError::Closed(_)) => {
+                info!("Packet channel is closed, no longer sending packets.");
+                commands.remove_resource::<ClientId>();
+            }
         }
     }
 }
@@ -309,8 +317,7 @@ fn on_other_player_moved(
         for (other_player, mut transform) in query.iter_mut() {
             if other_player.id == movement.id {
                 // Todo: Add PhysicalTranslation for smooth movement onscreen. Careful though, advance_physics doesn't run when the game is paused!
-                let translation = Vec3::new(movement.x, movement.y, movement.z);
-                transform.translation = translation;
+                transform.translation = Vec3::new(movement.x, movement.y, movement.z);
                 found_player = true;
             }
         }

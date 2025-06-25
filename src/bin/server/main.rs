@@ -1,12 +1,14 @@
 use anyhow;
 use clap::Parser;
-use miniscop::networking::Packet::PlayerPosition;
-use miniscop::networking::{receive_packet, send_packet};
-use quinn::{Endpoint, ServerConfig};
+use miniscop::networking::{receive_packet, send_packet, Packet};
+use quinn::{Connection, Endpoint, Incoming, ServerConfig, VarInt};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use tokio::sync::broadcast;
+use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{error, info};
 
 #[derive(Parser, Debug)]
@@ -26,16 +28,16 @@ struct Args {
     address: SocketAddr,
     // Todo: Add optional file path to .txt file with banned client IPs
     /// Maximum number of allowed players.
-    /// If you increase this past 100, you risk overwhelming your players with packets.
+    /// If you increase this past 100, you accept the of risk overwhelming your players with packets and/or running out of memory on your computer.
     #[clap(short, long, default_value = "100")]
     max_players: usize,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::new())?;
-
     let args = Args::parse();
+
+    tracing::subscriber::set_global_default(tracing_subscriber::FmtSubscriber::new())?;
 
     let certificate_chain = CertificateDer::pem_file_iter(args.certificate)?
         .map(|cert| cert.unwrap())
@@ -44,25 +46,25 @@ async fn main() -> anyhow::Result<()> {
     let server_config = ServerConfig::with_single_cert(certificate_chain, key)?;
     let endpoint = Endpoint::server(server_config, args.address)?;
 
+    // Create packet broadcaster.
+    // Capacity is enough to handle all connections sending up to 4 packets at the exact same time.
+    let (to_all_connections, _) = broadcast::channel::<Packet>(args.max_players * 4);
+
     info!("Waiting for connections...");
     while let Some(incoming) = endpoint.accept().await {
+        let address = incoming.remote_address();
         if endpoint.open_connections() > args.max_players {
-            info!(
-                "Refusing {}. Max player-count was reached.",
-                incoming.remote_address()
-            );
+            info!("Refusing {address}. Max player-count was reached.");
             incoming.refuse();
         } else if !incoming.remote_address_validated() {
-            info!(
-                "Requiring {} to validate its address",
-                incoming.remote_address()
-            );
+            info!("Requiring {address} to validate its address");
             incoming.retry()?;
         } else {
-            info!("Accepting connection from {}", incoming.remote_address());
+            info!("Accepting connection from {address}");
+            let to_all_connections_clone = to_all_connections.clone();
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(incoming).await {
-                    error!("Connection error: {:?}", e)
+                if let Err(e) = handle_incoming(incoming, to_all_connections_clone).await {
+                    error!("Connection error from {address}: {e:?}")
                 }
             });
         }
@@ -71,27 +73,102 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument(skip(incoming), fields(address = %incoming.remote_address()))]
-async fn handle_connection(incoming: quinn::Incoming) -> anyhow::Result<()> {
+/// This function is essentially the first half of a connection.
+///
+/// It receives packets from the connection, and broadcasts the packets to every other connection.
+///
+/// 1. Await connection
+/// 2. Spawn a task to handle the second half of the connection.
+/// 2. Tell the client its ID
+/// 3. Await packets from the client in a loop
+///
+/// Returns Ok if it closes the connection, and Err for any connection error.
+#[tracing::instrument(skip(incoming, to_all_connections), fields(address = %incoming.remote_address()))]
+async fn handle_incoming(
+    incoming: Incoming,
+    to_all_connections: Sender<Packet>,
+) -> anyhow::Result<()> {
     let connection = incoming.await?;
     info!("Established connection");
 
+    // Start a broadcast receiver
+    let connection_handle = connection.clone();
+    let from_all_connections = to_all_connections.subscribe();
+    tokio::spawn(async move {
+        if let Err(e) = receive_broadcasts(connection_handle, from_all_connections).await {
+            error!("Broadcast receiver error: {e:?}");
+        }
+    });
+
+    // Tell the client its ID
+    let send = connection.open_uni().await?;
+    let client_id = connection.stable_id() as u64;
+    let packet = Packet::AssignClientId(client_id);
+    send_packet(send, packet).await?;
+
+    // Start awaiting packets.
     // This loop ends when an error occurs.
     loop {
         let recv = connection.accept_uni().await?;
         let packet = receive_packet(recv).await?;
         match packet {
-            PlayerPosition { id, x, y, z } => {
-                let new_packet = PlayerPosition {
-                    id,
-                    x: x + 2.0,
-                    y,
-                    z,
-                };
-                let send = connection.open_uni().await?;
-                send_packet(send, new_packet).await?;
+            // Disconnect client if they send this packet.
+            Packet::AssignClientId(_) => {
+                connection.close(
+                    VarInt::from_u32(1),
+                    b"Client cannot send Packet::AssignClientId.",
+                );
+                return Ok(());
+            }
+            Packet::PlayerPosition { id, .. } => {
+                // Disconnect client if they send the wrong ID.
+                if id != client_id {
+                    connection.close(VarInt::from_u32(2), b"Client sent the wrong ID.");
+                    return Ok(());
+                }
+                to_all_connections.send(packet)?;
             }
         }
     }
-    // Todo: Identify which client disconnected when they disconnect
+}
+
+/// This function is essentially the second half of a connection.
+///
+/// It receives packets from every other connection, and sends the relevant ones to this connection.
+#[tracing::instrument(skip(connection, from_all_connections), fields(address = %connection.remote_address()))]
+async fn receive_broadcasts(
+    connection: Connection,
+    mut from_all_connections: Receiver<Packet>,
+) -> anyhow::Result<()> {
+    let client_id = connection.stable_id() as u64;
+
+    // Start awaiting packets.
+    // This loop must run extremely fast, so if any packets need to be sent, they should be sent in a separate task.
+    loop {
+        match from_all_connections.recv().await {
+            Ok(packet) => match packet {
+                Packet::AssignClientId(id) => {
+                    return Err(anyhow::anyhow!(
+                        "Server broadcasted a client id: {id}. This should never happen. Please report this to the dev."
+                    ));
+                }
+                Packet::PlayerPosition { id, .. } => {
+                    if id != client_id {
+                        let send = connection.open_uni().await?;
+                        tokio::spawn(async move {
+                            if let Err(e) = send_packet(send, packet).await {
+                                error!("Error sending packet: {e:?}");
+                            }
+                        });
+                    }
+                }
+            },
+            Err(RecvError::Closed) => return Err(anyhow::anyhow!("All broadcasters closed")),
+            Err(RecvError::Lagged(skipped_messages)) => {
+                error!(
+                    "Server is behind by {skipped_messages} messages! Please report this error to the dev so they can consider increasing channel capacity."
+                );
+            }
+        }
+    }
 }

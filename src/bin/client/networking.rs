@@ -19,6 +19,7 @@ pub(crate) struct ServerConnection {
     pub from_server: Receiver<Packet>,
 }
 impl ServerConnection {
+    // Todo: Add try_reconnect()
     /// Try to gracefully disconnect from the server, printing info if the method fails.
     ///
     /// You can force a disconnection by removing the ServerConnection resource.
@@ -31,18 +32,19 @@ impl ServerConnection {
                 }
                 Err(e) => {
                     info!(
-                        "Client will not disconnect due to an error that was already reported: {}",
-                        e
+                        "Client will not disconnect due to an error that was already reported: {e}",
                     )
                 }
             },
-            Err(e) => error!(
-                "Failed to await connection handle, client will not disconnect: {}",
-                e
-            ),
+            Err(e) => {
+                error!("Failed to await connection handle, client will not disconnect: {e:?}",)
+            }
         }
     }
 }
+
+#[derive(Resource)]
+pub(crate) struct ClientId(pub u64);
 
 // Systems
 pub(crate) fn setup_client_runtime(mut commands: Commands) {
@@ -56,7 +58,7 @@ pub(crate) fn setup_client_runtime(mut commands: Commands) {
                 Ok(output) => Ok(output),
                 Err(e) => {
                     // Report the error immediately, rather than waiting for the join handle to read it
-                    error!("Connection error: {}", e);
+                    error!("Connection error: {e:?}");
                     Err(e)
                 }
             }
@@ -92,7 +94,7 @@ pub(crate) async fn connect_to_server(
         .await?
         .next()
         .ok_or_else(|| anyhow::anyhow!("Could not resolve the server's IP address"))?;
-    info!("Connecting to {}", server_address);
+    info!("Connecting to {server_address}");
 
     // Rustls needs to get the computer's crypto provider first, or else Quinn will panic.
     // https://github.com/quinn-rs/quinn/issues/2275
@@ -100,25 +102,22 @@ pub(crate) async fn connect_to_server(
 
     let connection = endpoint
         .connect_with(ClientConfig::with_platform_verifier(), server_address, URL)
-        .map_err(|e| anyhow::anyhow!("Connection configuration error: {:?}", e))?
+        .map_err(|e| anyhow::anyhow!("Connection configuration error: {e:?}"))?
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {:?}", e))?;
-    info!("Connected to {}", server_address);
+        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {e:?}"))?;
+    info!("Connected to {server_address}");
 
     let connection_handle = connection.clone();
     tokio::spawn(async move {
         if let Err(e) = await_bevy_packets(connection_handle, from_bevy).await {
-            error!("Packet sending error: {:?}. No longer sending packets.", e);
+            error!("Packet sending error: {e:?}. No longer sending packets.");
         }
     });
 
     let connection_handle = connection.clone();
     tokio::spawn(async move {
         if let Err(e) = await_server_packets(connection_handle, to_bevy).await {
-            error!(
-                "Packet receiving error: {:?}. No longer receiving packets.",
-                e
-            );
+            error!("Packet receiving error: {e:?}. No longer receiving packets.");
         }
     });
 
@@ -138,7 +137,7 @@ pub(crate) async fn await_bevy_packets(
         let send = connection_handle.open_uni().await?;
         tokio::spawn(async move {
             if let Err(e) = send_packet(send, packet).await {
-                error!("Failed to send packet to server: {:?}", e);
+                error!("Failed to send packet to server: {e:?}");
             }
         });
     }
@@ -168,7 +167,7 @@ pub(crate) async fn await_server_packets(
                         }
                     }
                 }
-                Err(e) => error!("Failed to receive packet from server: {:?}", e),
+                Err(e) => error!("Failed to receive packet from server: {e:?}"),
             }
         });
     }
