@@ -120,7 +120,7 @@ async fn handle_incoming(
                 );
                 return Ok(());
             }
-            Packet::PlayerPosition { id, .. } => {
+            Packet::PlayerMovement { id, .. } => {
                 // Disconnect client if they send the wrong ID.
                 if id != client_id {
                     connection.close(VarInt::from_u32(2), b"Client sent the wrong ID.");
@@ -152,7 +152,7 @@ async fn receive_broadcasts(
                         "Server broadcasted a client id: {id}. This should never happen. Please report this to the dev."
                     ));
                 }
-                Packet::PlayerPosition { id, .. } => {
+                Packet::PlayerMovement { id, .. } => {
                     if id != client_id {
                         let send = connection.open_uni().await?;
                         tokio::spawn(async move {

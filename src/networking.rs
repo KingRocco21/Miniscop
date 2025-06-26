@@ -7,7 +7,15 @@ pub const PACKET_CONFIG: Configuration = config::standard();
 #[derive(Encode, Decode, Debug, Copy, Clone)]
 pub enum Packet {
     AssignClientId(u64),
-    PlayerPosition { id: u64, x: f32, y: f32, z: f32 },
+    PlayerMovement {
+        id: u64,
+        x: f32,
+        y: f32,
+        z: f32,
+        velocity_x: f32,
+        velocity_y: f32,
+        velocity_z: f32,
+    },
 }
 
 #[tracing::instrument]
