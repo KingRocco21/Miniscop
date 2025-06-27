@@ -1,3 +1,4 @@
+use crate::networking::stop_client_runtime_on_window_close;
 use crate::plugins::garalina::GaralinaPlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
 use crate::plugins::overworld::OverworldPlugin;
@@ -51,6 +52,7 @@ fn main() {
         .insert_state(AppState::Overworld)
         .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
         .add_systems(Startup, setup)
+        .add_systems(Update, stop_client_runtime_on_window_close)
         .run();
 }
 

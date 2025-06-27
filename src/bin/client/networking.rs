@@ -1,6 +1,7 @@
 use bevy::prelude::*;
+use bevy::window::WindowCloseRequested;
 use miniscop::networking::{receive_packet, send_packet, Packet};
-use quinn::{rustls, ClientConfig, Connection, Endpoint, VarInt};
+use quinn::{rustls, ClientConfig, Connection, Endpoint};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::lookup_host;
 use tokio::runtime::{Builder, Runtime};
@@ -14,37 +15,36 @@ use tokio::task::JoinHandle;
 #[derive(Resource)]
 pub(crate) struct ServerConnection {
     runtime: Runtime,
-    pub handle: JoinHandle<anyhow::Result<(Endpoint, Connection)>>,
+    pub connection_handle:
+        JoinHandle<anyhow::Result<(Endpoint, Connection, JoinHandle<()>, JoinHandle<()>)>>,
     pub to_client: Sender<Packet>,
     pub from_server: Receiver<Packet>,
 }
+// Todo: Add reconnecting support
 impl ServerConnection {
-    // Todo: Add try_reconnect()
-    /// Try to gracefully disconnect from the server, printing info if the method fails.
+    /// Try to gracefully disconnect from the server.
     ///
     /// You can force a disconnection by removing the ServerConnection resource.
-    pub(crate) fn try_disconnect(&mut self) {
-        match self.runtime.block_on(&mut self.handle) {
-            Ok(output) => match output {
-                Ok((endpoint, connection)) => {
-                    connection.close(VarInt::from_u32(0), b"Client disconnected normally");
-                    self.runtime.block_on(endpoint.wait_idle());
-                }
-                Err(e) => {
-                    info!(
-                        "Client will not disconnect due to an error that was already reported: {e}",
-                    )
-                }
-            },
-            Err(e) => {
-                error!("Failed to await connection handle, client will not disconnect: {e:?}",)
+    #[tracing::instrument(skip(self))]
+    pub(crate) fn try_disconnect(&mut self) -> anyhow::Result<()> {
+        self.to_client.try_send(Packet::ClientDisconnect(None))?;
+
+        let connect_to_server_output = self.runtime.block_on(&mut self.connection_handle)?;
+        match connect_to_server_output {
+            Ok((_endpoint, connection, bevy_handle, server_handle)) => {
+                self.runtime.block_on(bevy_handle)?;
+                self.runtime.block_on(server_handle)?;
+                self.runtime.block_on(connection.closed());
+            }
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "Client cannot disconnect due to an error that was already reported."
+                ));
             }
         }
+        Ok(())
     }
 }
-
-#[derive(Resource)]
-pub(crate) struct ClientId(pub u64);
 
 // Systems
 pub(crate) fn setup_client_runtime(mut commands: Commands) {
@@ -52,32 +52,44 @@ pub(crate) fn setup_client_runtime(mut commands: Commands) {
     let (to_client, from_bevy) = mpsc::channel::<Packet>(128);
     let (to_bevy, from_server) = mpsc::channel::<Packet>(128);
     // Connect to server
-    let connection_handle: JoinHandle<anyhow::Result<(Endpoint, Connection)>> =
-        runtime.spawn(async move {
-            match connect_to_server(from_bevy, to_bevy).await {
-                Ok(output) => Ok(output),
-                Err(e) => {
-                    // Report the error immediately, rather than waiting for the join handle to read it
-                    error!("Connection error: {e:?}");
-                    Err(e)
-                }
+    let connection_handle = runtime.spawn(async move {
+        match connect_to_server(from_bevy, to_bevy).await {
+            Ok(output) => Ok(output),
+            Err(e) => {
+                // Report the error immediately, rather than waiting for the join handle to read it
+                error!("Unable to connect to server: {e:#?}");
+                Err(e)
             }
-        });
+        }
+    });
 
     commands.insert_resource(ServerConnection {
         runtime,
-        handle: connection_handle,
+        connection_handle,
         to_client,
         from_server,
     });
 }
 
-pub(crate) fn stop_client_runtime(
+/// A system that tries to disconnect from the server when the window is closed.
+pub(crate) fn stop_client_runtime_on_window_close(
     mut commands: Commands,
-    mut server_connection: ResMut<ServerConnection>,
+    server_connection: Option<ResMut<ServerConnection>>,
+    mut window_close_requested: EventReader<WindowCloseRequested>,
 ) {
-    server_connection.try_disconnect();
-    commands.remove_resource::<ServerConnection>();
+    if let Some(mut server_connection) = server_connection {
+        for _ in window_close_requested.read() {
+            match server_connection.try_disconnect() {
+                Ok(()) => {
+                    info!("Successfully disconnected from server.");
+                }
+                Err(e) => {
+                    error!("Unable to disconnect from server: {e:#?}");
+                }
+            }
+            commands.remove_resource::<ServerConnection>();
+        }
+    }
 }
 
 // Non-system functions
@@ -85,7 +97,7 @@ pub(crate) fn stop_client_runtime(
 pub(crate) async fn connect_to_server(
     from_bevy: Receiver<Packet>,
     to_bevy: Sender<Packet>,
-) -> anyhow::Result<(Endpoint, Connection)> {
+) -> anyhow::Result<(Endpoint, Connection, JoinHandle<()>, JoinHandle<()>)> {
     let endpoint = Endpoint::client(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)))?;
 
     // Todo: Let player choose server to connect to
@@ -108,20 +120,21 @@ pub(crate) async fn connect_to_server(
     info!("Connected to {server_address}");
 
     let connection_handle = connection.clone();
-    tokio::spawn(async move {
+    let bevy_task = tokio::spawn(async move {
         if let Err(e) = await_bevy_packets(connection_handle, from_bevy).await {
-            error!("Packet sending error: {e:?}. No longer sending packets.");
+            error!("Packet sending error: {e:#?}. No longer sending packets.");
         }
     });
 
     let connection_handle = connection.clone();
-    tokio::spawn(async move {
-        if let Err(e) = await_server_packets(connection_handle, to_bevy).await {
-            error!("Packet receiving error: {e:?}. No longer receiving packets.");
+    let server_task = tokio::spawn(async move {
+        if let Err(e) = await_server_packets(connection_handle, to_bevy.clone()).await {
+            error!("Packet receiving error: {e:#?}. No longer receiving packets.");
         }
+        let _ = to_bevy.send(Packet::ClientDisconnect(None)).await;
     });
 
-    Ok((endpoint, connection))
+    Ok((endpoint, connection, bevy_task, server_task))
 }
 
 /// Awaits packets from Bevy to send to the server.
@@ -137,9 +150,13 @@ pub(crate) async fn await_bevy_packets(
         let send = connection_handle.open_uni().await?;
         tokio::spawn(async move {
             if let Err(e) = send_packet(send, packet).await {
-                error!("Failed to send packet to server: {e:?}");
+                error!("Failed to send packet to server: {e:#?}");
             }
         });
+
+        if packet == Packet::ClientDisconnect(None) {
+            return Ok(());
+        }
     }
 
     Ok(())

@@ -1,4 +1,4 @@
-use crate::networking::{setup_client_runtime, stop_client_runtime, ClientId, ServerConnection};
+use crate::networking::{setup_client_runtime, ServerConnection};
 use crate::states::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
@@ -9,7 +9,9 @@ pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<OverworldState>()
+            .add_sub_state::<MultiplayerState>()
             .add_event::<OtherPlayerMoved>()
+            .add_event::<OtherPlayerDisconnected>()
             .add_systems(
                 OnEnter(AppState::Overworld),
                 (setup_overworld, setup_client_runtime),
@@ -21,18 +23,17 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 FixedUpdate,
                 (
-                    (
-                        // These must be run in this order because each one is dependent on the next.
-                        read_packets,
-                        on_other_player_moved,
-                        advance_physics,
-                        animate_sprites,
-                    )
+                    // These must be run in this order because each one is dependent on the next.
+                    read_packets,
+                    (on_other_player_moved, on_other_player_disconnected)
                         .chain()
-                        .run_if(in_state(OverworldState::InGame)),
-                    send_current_position,
+                        .run_if(in_state(MultiplayerState::Online)),
+                    advance_physics,
+                    send_current_position.run_if(in_state(MultiplayerState::Online)),
+                    animate_sprites,
                 )
-                    .run_if(in_state(AppState::Overworld)),
+                    .chain()
+                    .run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
                 RunFixedMainLoop,
@@ -46,8 +47,7 @@ impl Plugin for OverworldPlugin {
             .add_systems(
                 Update,
                 follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
-            )
-            .add_systems(OnExit(AppState::Overworld), stop_client_runtime);
+            );
     }
 }
 
@@ -64,6 +64,14 @@ enum OverworldState {
     #[default]
     Loading,
     InGame,
+}
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
+#[source(AppState = AppState::Overworld)]
+#[states(scoped_entities)]
+enum MultiplayerState {
+    #[default]
+    Offline,
+    Online,
 }
 
 // Resources
@@ -326,18 +334,27 @@ struct OtherPlayerMoved {
     translation: Vec3,
     velocity: Vec3,
 }
+#[derive(Event)]
+struct OtherPlayerDisconnected(u64);
 
 /// This system reads incoming packets, and fires a matching event for each one.
-#[tracing::instrument(skip(commands, connection, player_moved))]
+#[tracing::instrument(skip(connection, next_state, player_moved, player_disconnected))]
 fn read_packets(
-    mut commands: Commands,
     mut connection: ResMut<ServerConnection>,
+    mut next_state: ResMut<NextState<MultiplayerState>>,
     mut player_moved: EventWriter<OtherPlayerMoved>,
+    mut player_disconnected: EventWriter<OtherPlayerDisconnected>,
 ) {
     // let time = Instant::now();
     while let Ok(packet) = connection.from_server.try_recv() {
         match packet {
-            Packet::AssignClientId(id) => commands.insert_resource(ClientId(id)),
+            Packet::ClientConnect => next_state.set(MultiplayerState::Online),
+            Packet::ClientDisconnect(id) => match id {
+                None => next_state.set(MultiplayerState::Offline),
+                Some(id) => {
+                    player_disconnected.write(OtherPlayerDisconnected(id));
+                }
+            },
             Packet::PlayerMovement {
                 id,
                 x,
@@ -348,7 +365,7 @@ fn read_packets(
                 velocity_z,
             } => {
                 player_moved.write(OtherPlayerMoved {
-                    id,
+                    id: id.expect("Server should send id of movement. Please report to dev."),
                     translation: Vec3::new(x, y, z),
                     velocity: Vec3::new(velocity_x, velocity_y, velocity_z),
                 });
@@ -359,32 +376,28 @@ fn read_packets(
 }
 
 fn send_current_position(
-    mut commands: Commands,
     connection: Res<ServerConnection>,
-    id: Option<Res<ClientId>>,
+    mut next_state: ResMut<NextState<MultiplayerState>>,
     position: Single<(&PhysicalTranslation, &Velocity)>,
 ) {
-    // Only try to send packets if connected to server and received ID
-    if let Some(id) = id {
-        let (position, velocity) = position.into_inner();
-        let packet = Packet::PlayerMovement {
-            id: id.0,
-            x: position.x,
-            y: position.y,
-            z: position.z,
-            velocity_x: velocity.x,
-            velocity_y: velocity.y,
-            velocity_z: velocity.z,
-        };
-        match connection.to_client.try_send(packet) {
-            Ok(_) => {}
-            Err(TrySendError::Full(_)) => {
-                info!("Packet channel is full, packet not sent.");
-            }
-            Err(TrySendError::Closed(_)) => {
-                info!("Packet channel is closed, no longer sending packets.");
-                commands.remove_resource::<ClientId>();
-            }
+    let (position, velocity) = position.into_inner();
+    let packet = Packet::PlayerMovement {
+        id: None,
+        x: position.x,
+        y: position.y,
+        z: position.z,
+        velocity_x: velocity.x,
+        velocity_y: velocity.y,
+        velocity_z: velocity.z,
+    };
+    match connection.to_client.try_send(packet) {
+        Ok(_) => {}
+        Err(TrySendError::Full(_)) => {
+            info!("Packet channel is full, packet not sent.");
+        }
+        Err(TrySendError::Closed(_)) => {
+            error!("Packet channel is closed, no longer sending packets.");
+            next_state.set(MultiplayerState::Offline);
         }
     }
 }
@@ -408,7 +421,7 @@ fn on_other_player_moved(
         }
         if !found_player {
             commands.spawn((
-                StateScoped(AppState::Overworld),
+                StateScoped(MultiplayerState::Online),
                 OtherPlayer { id: movement.id },
                 Sprite3dBuilder {
                     image: sprite_assets.other_player_image.clone(),
@@ -428,6 +441,22 @@ fn on_other_player_moved(
                 Velocity(movement.velocity),
                 AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
             ));
+        }
+    }
+}
+
+fn on_other_player_disconnected(
+    mut commands: Commands,
+    mut players_disconnected: EventReader<OtherPlayerDisconnected>,
+    query: Query<(&OtherPlayer, Entity)>,
+) {
+    for player_disconnected in players_disconnected.read() {
+        for (other_player, entity) in query.iter() {
+            if other_player.id == player_disconnected.0 {
+                if let Ok(mut entity) = commands.get_entity(entity) {
+                    entity.despawn();
+                }
+            }
         }
     }
 }

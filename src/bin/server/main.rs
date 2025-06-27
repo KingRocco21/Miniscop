@@ -1,7 +1,7 @@
 use anyhow;
 use clap::Parser;
 use miniscop::networking::{receive_packet, send_packet, Packet};
-use quinn::{Connection, Endpoint, Incoming, ServerConfig, VarInt};
+use quinn::{Connection, Endpoint, ServerConfig};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::net::SocketAddr;
@@ -60,13 +60,27 @@ async fn main() -> anyhow::Result<()> {
             info!("Requiring {address} to validate its address");
             incoming.retry()?;
         } else {
-            info!("Accepting connection from {address}");
-            let to_all_connections_clone = to_all_connections.clone();
-            tokio::spawn(async move {
-                if let Err(e) = handle_incoming(incoming, to_all_connections_clone).await {
-                    error!("Connection error from {address}: {e:?}")
+            info!("Accepting connection from {address}...");
+            match incoming.await {
+                Ok(connection) => {
+                    let client_id = connection.stable_id() as u64;
+                    info!("Established connection. Client ID is {client_id}.");
+
+                    let to_all_connections_clone = to_all_connections.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) =
+                            handle_connection(connection, to_all_connections_clone.clone()).await
+                        {
+                            error!("Connection error from {address}: {e:#?}")
+                        }
+                        let _ = to_all_connections_clone
+                            .send(Packet::ClientDisconnect(Some(client_id)));
+                    });
                 }
-            });
+                Err(connection_error) => {
+                    error!("Failed to connect: {connection_error:?}");
+                }
+            }
         }
     }
 
@@ -77,33 +91,28 @@ async fn main() -> anyhow::Result<()> {
 ///
 /// It receives packets from the connection, and broadcasts the packets to every other connection.
 ///
-/// 1. Await connection
-/// 2. Spawn a task to handle the second half of the connection.
+/// 1. Spawn a task to handle the second half of the connection.
 /// 2. Tell the client its ID
 /// 3. Await packets from the client in a loop
-///
-/// Returns Ok if it closes the connection, and Err for any connection error.
-#[tracing::instrument(skip(incoming, to_all_connections), fields(address = %incoming.remote_address()))]
-async fn handle_incoming(
-    incoming: Incoming,
+#[tracing::instrument(skip(connection, to_all_connections), fields(address = %connection.remote_address()
+))]
+async fn handle_connection(
+    connection: Connection,
     to_all_connections: Sender<Packet>,
 ) -> anyhow::Result<()> {
-    let connection = incoming.await?;
-    info!("Established connection");
-
     // Start a broadcast receiver
     let connection_handle = connection.clone();
     let from_all_connections = to_all_connections.subscribe();
     tokio::spawn(async move {
         if let Err(e) = receive_broadcasts(connection_handle, from_all_connections).await {
-            error!("Broadcast receiver error: {e:?}");
+            error!("Broadcast receiver error: {e:#?}");
         }
     });
 
     // Tell the client its ID
-    let send = connection.open_uni().await?;
     let client_id = connection.stable_id() as u64;
-    let packet = Packet::AssignClientId(client_id);
+    let send = connection.open_uni().await?;
+    let packet = Packet::ClientConnect;
     send_packet(send, packet).await?;
 
     // Start awaiting packets.
@@ -112,21 +121,36 @@ async fn handle_incoming(
         let recv = connection.accept_uni().await?;
         let packet = receive_packet(recv).await?;
         match packet {
-            // Disconnect client if they send this packet.
-            Packet::AssignClientId(_) => {
-                connection.close(
-                    VarInt::from_u32(1),
-                    b"Client cannot send Packet::AssignClientId.",
-                );
+            Packet::ClientConnect => {
+                return Err(anyhow::anyhow!(
+                    "Client tried to send Packet::ClientConnect."
+                ));
+            }
+            Packet::ClientDisconnect(_) => {
+                info!("Client is disconnecting.");
                 return Ok(());
             }
-            Packet::PlayerMovement { id, .. } => {
-                // Disconnect client if they send the wrong ID.
-                if id != client_id {
-                    connection.close(VarInt::from_u32(2), b"Client sent the wrong ID.");
-                    return Ok(());
+            Packet::PlayerMovement {
+                id,
+                x,
+                y,
+                z,
+                velocity_x,
+                velocity_y,
+                velocity_z,
+            } => {
+                if id.is_some() {
+                    return Err(anyhow::anyhow!("Client sent PlayerMovement with an ID."));
                 }
-                to_all_connections.send(packet)?;
+                to_all_connections.send(Packet::PlayerMovement {
+                    id: Some(client_id),
+                    x,
+                    y,
+                    z,
+                    velocity_x,
+                    velocity_y,
+                    velocity_z,
+                })?;
             }
         }
     }
@@ -135,7 +159,8 @@ async fn handle_incoming(
 /// This function is essentially the second half of a connection.
 ///
 /// It receives packets from every other connection, and sends the relevant ones to this connection.
-#[tracing::instrument(skip(connection, from_all_connections), fields(address = %connection.remote_address()))]
+#[tracing::instrument(skip(connection, from_all_connections), fields(address = %connection.remote_address()
+))]
 async fn receive_broadcasts(
     connection: Connection,
     mut from_all_connections: Receiver<Packet>,
@@ -147,17 +172,29 @@ async fn receive_broadcasts(
     loop {
         match from_all_connections.recv().await {
             Ok(packet) => match packet {
-                Packet::AssignClientId(id) => {
-                    return Err(anyhow::anyhow!(
-                        "Server broadcasted a client id: {id}. This should never happen. Please report this to the dev."
-                    ));
+                Packet::ClientConnect => {
+                    panic!(
+                        "Server broadcasted a client connect. This should never happen. Please report this to the dev."
+                    )
                 }
-                Packet::PlayerMovement { id, .. } => {
-                    if id != client_id {
+                Packet::ClientDisconnect(id) => {
+                    if id.expect("Server broadcasted Packet::ClientDisconnect with no id. This should never happen. Please report this to the dev.") == client_id {
+                        return Ok(());
+                    } else {
                         let send = connection.open_uni().await?;
                         tokio::spawn(async move {
                             if let Err(e) = send_packet(send, packet).await {
-                                error!("Error sending packet: {e:?}");
+                                error!("Error sending packet: {e:#?}");
+                            }
+                        });
+                    }
+                }
+                Packet::PlayerMovement { id, .. } => {
+                    if id.is_some_and(|id| id != client_id) {
+                        let send = connection.open_uni().await?;
+                        tokio::spawn(async move {
+                            if let Err(e) = send_packet(send, packet).await {
+                                error!("Error sending packet: {e:#?}");
                             }
                         });
                     }
