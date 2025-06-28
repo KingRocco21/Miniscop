@@ -135,9 +135,7 @@ async fn handle_connection(
                 x,
                 y,
                 z,
-                velocity_x,
-                velocity_y,
-                velocity_z,
+                animation_frame,
             } => {
                 if id.is_some() {
                     return Err(anyhow::anyhow!("Client sent PlayerMovement with an ID."));
@@ -147,9 +145,7 @@ async fn handle_connection(
                     x,
                     y,
                     z,
-                    velocity_x,
-                    velocity_y,
-                    velocity_z,
+                    animation_frame,
                 })?;
             }
         }

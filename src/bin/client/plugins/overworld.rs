@@ -1,5 +1,6 @@
+use crate::networking::MultiplayerState;
 use crate::networking::{setup_client_runtime, ServerConnection};
-use crate::states::AppState;
+use crate::AppState;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use miniscop::networking::Packet;
@@ -9,7 +10,6 @@ pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
         app.add_sub_state::<OverworldState>()
-            .add_sub_state::<MultiplayerState>()
             .add_event::<OtherPlayerMoved>()
             .add_event::<OtherPlayerDisconnected>()
             .add_systems(
@@ -24,7 +24,10 @@ impl Plugin for OverworldPlugin {
                 FixedUpdate,
                 (
                     // These must be run in this order because each one is dependent on the next.
-                    read_packets,
+                    read_packets.run_if(
+                        in_state(MultiplayerState::Connecting)
+                            .or(in_state(MultiplayerState::Online)),
+                    ),
                     (on_other_player_moved, on_other_player_disconnected)
                         .chain()
                         .run_if(in_state(MultiplayerState::Online)),
@@ -55,6 +58,11 @@ impl Plugin for OverworldPlugin {
 /// Note: Based on current guardian sprite
 const SPRITE_PIXELS_PER_METER: f32 = 33.0;
 const STARTING_TRANSLATION: Vec3 = Vec3::new(0.0, 64.0 / SPRITE_PIXELS_PER_METER * 0.5, 0.0);
+/// Meters per second squared
+const ACCELERATION: f32 = 50.0;
+const MAX_ACCELERATION_VEC: Vec3 = Vec3::splat(ACCELERATION);
+const VELOCITY: f32 = 5.0;
+const MAX_VELOCITY_VEC: Vec3 = Vec3::splat(VELOCITY);
 
 // Overworld Sub-States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
@@ -64,14 +72,6 @@ enum OverworldState {
     #[default]
     Loading,
     InGame,
-}
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
-#[source(AppState = AppState::Overworld)]
-#[states(scoped_entities)]
-enum MultiplayerState {
-    #[default]
-    Offline,
-    Online,
 }
 
 // Resources
@@ -98,6 +98,10 @@ struct AnimationTimer(Timer);
 /// since the last time the physics simulation was advanced.
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
 struct AccumulatedInput(Vec3);
+
+/// A vector representing the player's acceleration in the physics simulation.
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
+struct Acceleration(Vec3);
 
 /// A vector representing the player's velocity in the physics simulation.
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
@@ -174,6 +178,7 @@ fn finish_loading(
             ),
             Transform::from_translation(STARTING_TRANSLATION),
             AccumulatedInput::default(),
+            Acceleration::default(),
             Velocity::default(),
             PhysicalTranslation(STARTING_TRANSLATION),
             PreviousPhysicalTranslation(STARTING_TRANSLATION),
@@ -199,24 +204,24 @@ fn finish_loading(
 /// Handle keyboard input and accumulate it in the `AccumulatedInput` component.
 fn handle_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut AccumulatedInput, &mut Velocity)>,
+    mut query: Query<(&mut AccumulatedInput, &mut Acceleration)>,
 ) {
-    for (mut input, mut velocity) in query.iter_mut() {
+    for (mut input, mut acceleration) in query.iter_mut() {
         if keyboard_input.pressed(KeyCode::KeyW) {
-            input.z -= 1.0;
+            input.z -= ACCELERATION;
         }
         if keyboard_input.pressed(KeyCode::KeyS) {
-            input.z += 1.0;
+            input.z += ACCELERATION;
         }
         if keyboard_input.pressed(KeyCode::KeyA) {
-            input.x -= 1.0;
+            input.x -= ACCELERATION;
         }
         if keyboard_input.pressed(KeyCode::KeyD) {
-            input.x += 1.0;
+            input.x += ACCELERATION;
         }
 
         // If you want to normalize the input, do input.normalize_or_zero() instead of clamping.
-        velocity.0 = input.clamp(Vec3::NEG_ONE, Vec3::ONE) * 4.0;
+        acceleration.0 = input.clamp(-MAX_ACCELERATION_VEC, MAX_ACCELERATION_VEC);
     }
 }
 
@@ -227,12 +232,46 @@ fn advance_physics(
         &mut PhysicalTranslation,
         &mut PreviousPhysicalTranslation,
         &mut AccumulatedInput,
-        &Velocity,
+        &Acceleration,
+        &mut Velocity,
     )>,
 ) {
-    let (mut current_physical_translation, mut previous_physical_translation, mut input, velocity) =
-        player.into_inner();
+    let (
+        mut current_physical_translation,
+        mut previous_physical_translation,
+        mut input,
+        acceleration,
+        mut velocity,
+    ) = player.into_inner();
 
+    // Advance velocity
+    if acceleration.x == 0.0 {
+        if velocity.x < 0.0 {
+            velocity.x += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
+            velocity.x = velocity.x.min(0.0);
+        } else if velocity.x > 0.0 {
+            velocity.x -= MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
+            velocity.x = velocity.x.max(0.0);
+        }
+    } else {
+        velocity.x += acceleration.x * fixed_time.delta_secs();
+    }
+
+    if acceleration.z == 0.0 {
+        if velocity.z < 0.0 {
+            velocity.z += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
+            velocity.z = velocity.z.min(0.0);
+        } else if velocity.z > 0.0 {
+            velocity.z -= MAX_ACCELERATION_VEC.z * fixed_time.delta_secs();
+            velocity.z = velocity.z.max(0.0);
+        }
+    } else {
+        velocity.z += acceleration.z * fixed_time.delta_secs();
+    }
+
+    velocity.0 = velocity.clamp(-MAX_VELOCITY_VEC, MAX_VELOCITY_VEC);
+
+    // Advance position
     previous_physical_translation.0 = current_physical_translation.0;
     current_physical_translation.0 += velocity.0 * fixed_time.delta_secs();
 
@@ -265,25 +304,22 @@ fn follow_player_with_camera(
     player_transform: Single<&Transform, With<Player>>,
     mut camera_transform: Single<&mut Transform, (With<Camera3d>, Without<Player>)>,
 ) {
-    // Get the player's x distance to the camera.
-    let x_dist = player_transform.translation.x - camera_transform.translation.x;
-    if x_dist > 2.0 {
-        camera_transform.translation.x = player_transform.translation.x - 2.0;
-    } else if x_dist < -2.0 {
-        camera_transform.translation.x = player_transform.translation.x + 2.0;
-    }
+    camera_transform.translation.x = camera_transform.translation.x.clamp(
+        player_transform.translation.x - 2.0,
+        player_transform.translation.x + 2.0,
+    );
 }
 
 // Mod (%) by the column count to find which column the atlas is in.
 // Floor divide by the row count to find which row the atlas is in. Multiply by row count to return to that row.
 fn animate_sprites(
     fixed_time: Res<Time>,
-    mut query: Query<(&mut AnimationTimer, &Velocity, &mut Sprite3d)>,
+    mut query: Query<(&mut AnimationTimer, &Acceleration, &mut Sprite3d)>,
 ) {
     let delta = fixed_time.delta();
-    for (mut timer, velocity, mut sprite_3d) in query.iter_mut() {
+    for (mut timer, acceleration, mut sprite_3d) in query.iter_mut() {
         let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
-        if velocity.length() == 0.0 {
+        if acceleration.length() == 0.0 {
             // Stopped moving, so stop animation in current direction
             timer.pause();
             timer.reset();
@@ -293,16 +329,16 @@ fn animate_sprites(
             // Then update the animation to the current direction.
             // To be faithful to Petscop, left and right overrides forward and backward.
             let current_frame = (atlas.index as f32 / 5.0).floor() as usize * 5;
-            if velocity.x < 0.0 {
+            if acceleration.x < 0.0 {
                 // Left
                 atlas.index = current_frame + 2;
-            } else if velocity.x > 0.0 {
+            } else if acceleration.x > 0.0 {
                 // Right
                 atlas.index = current_frame + 1;
-            } else if velocity.z < 0.0 {
+            } else if acceleration.z < 0.0 {
                 // Forward
                 atlas.index = current_frame + 3;
-            } else if velocity.z > 0.0 {
+            } else if acceleration.z > 0.0 {
                 // Backward
                 atlas.index = current_frame;
             }
@@ -332,12 +368,13 @@ fn animate_sprites(
 struct OtherPlayerMoved {
     id: u64,
     translation: Vec3,
-    velocity: Vec3,
+    animation_frame: usize,
 }
 #[derive(Event)]
 struct OtherPlayerDisconnected(u64);
 
 /// This system reads incoming packets, and fires a matching event for each one.
+/// This system is responsible for setting MultiplayerState to Online whenever the server says it is connected.
 #[tracing::instrument(skip(connection, next_state, player_moved, player_disconnected))]
 fn read_packets(
     mut connection: ResMut<ServerConnection>,
@@ -360,14 +397,12 @@ fn read_packets(
                 x,
                 y,
                 z,
-                velocity_x,
-                velocity_y,
-                velocity_z,
+                animation_frame,
             } => {
                 player_moved.write(OtherPlayerMoved {
                     id: id.expect("Server should send id of movement. Please report to dev."),
                     translation: Vec3::new(x, y, z),
-                    velocity: Vec3::new(velocity_x, velocity_y, velocity_z),
+                    animation_frame: animation_frame as usize,
                 });
             }
         }
@@ -378,26 +413,27 @@ fn read_packets(
 fn send_current_position(
     connection: Res<ServerConnection>,
     mut next_state: ResMut<NextState<MultiplayerState>>,
-    position: Single<(&PhysicalTranslation, &Velocity)>,
+    position: Single<(&Velocity, &PhysicalTranslation, &Sprite3d)>,
 ) {
-    let (position, velocity) = position.into_inner();
-    let packet = Packet::PlayerMovement {
-        id: None,
-        x: position.x,
-        y: position.y,
-        z: position.z,
-        velocity_x: velocity.x,
-        velocity_y: velocity.y,
-        velocity_z: velocity.z,
-    };
-    match connection.to_client.try_send(packet) {
-        Ok(_) => {}
-        Err(TrySendError::Full(_)) => {
-            info!("Packet channel is full, packet not sent.");
-        }
-        Err(TrySendError::Closed(_)) => {
-            error!("Packet channel is closed, no longer sending packets.");
-            next_state.set(MultiplayerState::Offline);
+    let (velocity, position, sprite_3d) = position.into_inner();
+    if velocity.length() != 0.0 {
+        let packet = Packet::PlayerMovement {
+            id: None,
+            x: position.x,
+            y: position.y,
+            z: position.z,
+            animation_frame: u8::try_from(sprite_3d.texture_atlas.as_ref().unwrap().index)
+                .expect("Sprite atlas index should fit within 0 and 255"),
+        };
+        match connection.to_client.try_send(packet) {
+            Ok(_) => {}
+            Err(TrySendError::Full(_)) => {
+                info!("Packet channel is full, packet not sent.");
+            }
+            Err(TrySendError::Closed(_)) => {
+                error!("Packet channel is closed, no longer sending packets.");
+                next_state.set(MultiplayerState::Offline);
+            }
         }
     }
 }
@@ -408,14 +444,14 @@ fn on_other_player_moved(
     sprite_assets: Res<SpriteAssets>,
     mut sprite3d_params: Sprite3dParams,
     mut player_moved: EventReader<OtherPlayerMoved>,
-    mut query: Query<(&OtherPlayer, &mut Transform, &mut Velocity)>,
+    mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite3d)>,
 ) {
     for movement in player_moved.read() {
         let mut found_player = false;
-        for (other_player, mut transform, mut velocity) in query.iter_mut() {
+        for (other_player, mut transform, mut sprite_3d) in query.iter_mut() {
             if other_player.id == movement.id {
                 transform.translation = movement.translation;
-                velocity.0 = movement.velocity;
+                sprite_3d.texture_atlas.as_mut().unwrap().index = movement.animation_frame;
                 found_player = true;
             }
         }
@@ -434,12 +470,10 @@ fn on_other_player_moved(
                     &mut sprite3d_params,
                     TextureAtlas {
                         layout: sprite_assets.layout.clone(),
-                        index: 0,
+                        index: movement.animation_frame,
                     },
                 ),
                 Transform::from_translation(movement.translation),
-                Velocity(movement.velocity),
-                AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
             ));
         }
     }

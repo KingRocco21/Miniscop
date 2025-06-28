@@ -1,4 +1,4 @@
-use crate::states::AppState;
+use crate::AppState;
 use bevy::asset::RenderAssetUsages;
 use bevy::math::ops::{cos, sin};
 use bevy::prelude::*;

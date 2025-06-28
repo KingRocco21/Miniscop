@@ -17,9 +17,7 @@ pub enum Packet {
         x: f32,
         y: f32,
         z: f32,
-        velocity_x: f32,
-        velocity_y: f32,
-        velocity_z: f32,
+        animation_frame: u8,
     },
 }
 

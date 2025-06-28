@@ -1,8 +1,8 @@
 use crate::networking::stop_client_runtime_on_window_close;
+use crate::networking::MultiplayerState;
 use crate::plugins::garalina::GaralinaPlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
 use crate::plugins::overworld::OverworldPlugin;
-use crate::states::AppState;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
 use bevy::prelude::*;
 use bevy::text::FontSmoothing;
@@ -13,7 +13,6 @@ use std::time::Duration;
 
 mod networking;
 mod plugins;
-mod states;
 
 fn main() {
     App::new()
@@ -50,10 +49,23 @@ fn main() {
             },
         ))
         .insert_state(AppState::Overworld)
+        .insert_state(MultiplayerState::Offline)
         .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
         .add_systems(Startup, setup)
-        .add_systems(Update, stop_client_runtime_on_window_close)
+        .add_systems(
+            Update,
+            stop_client_runtime_on_window_close.run_if(in_state(MultiplayerState::Online)),
+        )
         .run();
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+#[states(scoped_entities)]
+pub enum AppState {
+    #[default]
+    Garalina,
+    MainMenu,
+    Overworld,
 }
 
 // Systems

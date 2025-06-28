@@ -10,8 +10,19 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+#[states(scoped_entities)]
+pub enum MultiplayerState {
+    #[default]
+    Offline,
+    Connecting,
+    Online,
+}
+
 // Resources
 /// This resource keeps the async server connection alive.
+///
+/// This is guaranteed to exist when MultiplayerState is Connecting or Online.
 #[derive(Resource)]
 pub(crate) struct ServerConnection {
     runtime: Runtime,
@@ -47,7 +58,13 @@ impl ServerConnection {
 }
 
 // Systems
-pub(crate) fn setup_client_runtime(mut commands: Commands) {
+/// This system is not responsible for setting MultiplayerState to connected.
+/// Whichever system reads the packets should set MultiplayerState::Online when it receives Packet::ClientConnect.
+pub(crate) fn setup_client_runtime(
+    mut commands: Commands,
+    mut next_state: ResMut<NextState<MultiplayerState>>,
+) {
+    next_state.set(MultiplayerState::Connecting);
     let runtime = Builder::new_multi_thread().enable_all().build().unwrap();
     let (to_client, from_bevy) = mpsc::channel::<Packet>(128);
     let (to_bevy, from_server) = mpsc::channel::<Packet>(128);
@@ -72,23 +89,24 @@ pub(crate) fn setup_client_runtime(mut commands: Commands) {
 }
 
 /// A system that tries to disconnect from the server when the window is closed.
+/// This should only be called if MultiplayerState is Online.
 pub(crate) fn stop_client_runtime_on_window_close(
     mut commands: Commands,
-    server_connection: Option<ResMut<ServerConnection>>,
+    mut server_connection: ResMut<ServerConnection>,
+    mut next_state: ResMut<NextState<MultiplayerState>>,
     mut window_close_requested: EventReader<WindowCloseRequested>,
 ) {
-    if let Some(mut server_connection) = server_connection {
-        for _ in window_close_requested.read() {
-            match server_connection.try_disconnect() {
-                Ok(()) => {
-                    info!("Successfully disconnected from server.");
-                }
-                Err(e) => {
-                    error!("Unable to disconnect from server: {e:#?}");
-                }
+    for _ in window_close_requested.read() {
+        match server_connection.try_disconnect() {
+            Ok(()) => {
+                info!("Successfully disconnected from server.");
             }
-            commands.remove_resource::<ServerConnection>();
+            Err(e) => {
+                error!("Unable to disconnect from server: {e:#?}");
+            }
         }
+        commands.remove_resource::<ServerConnection>();
+        next_state.set(MultiplayerState::Offline);
     }
 }
 
