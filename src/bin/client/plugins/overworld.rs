@@ -1,6 +1,7 @@
 use crate::networking::MultiplayerState;
 use crate::networking::{setup_client_runtime, ServerConnection};
 use crate::AppState;
+use bevy::audio::PlaybackMode;
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use miniscop::networking::Packet;
@@ -81,6 +82,11 @@ struct SpriteAssets {
     other_player_image: Handle<Image>,
     layout: Handle<TextureAtlasLayout>,
 }
+#[derive(Resource)]
+struct SoundEffects {
+    walking_1: Handle<AudioSource>,
+    walking_2: Handle<AudioSource>,
+}
 
 // Components
 #[derive(Component)]
@@ -147,18 +153,33 @@ fn setup_overworld(
             None,
         )),
     });
+    // Start loading sound effects
+    commands.insert_resource(SoundEffects {
+        walking_1: asset_server.load("overworld/sounds/walking_1.ogg"),
+        walking_2: asset_server.load("overworld/sounds/walking_2.ogg"),
+    });
 }
 
 fn finish_loading(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     sprite_assets: Res<SpriteAssets>,
+    sound_effects: Res<SoundEffects>,
     mut sprite3d_params: Sprite3dParams,
     mut next_state: ResMut<NextState<OverworldState>>,
 ) {
     if asset_server
         .get_load_state(sprite_assets.guardian_image.id())
         .is_some_and(|state| state.is_loaded())
+        && asset_server
+            .get_load_state(sprite_assets.other_player_image.id())
+            .is_some_and(|state| state.is_loaded())
+        && asset_server
+            .get_load_state(sound_effects.walking_1.id())
+            .is_some_and(|state| state.is_loaded())
+        && asset_server
+            .get_load_state(sound_effects.walking_2.id())
+            .is_some_and(|state| state.is_loaded())
     {
         commands.spawn((
             StateScoped(AppState::Overworld),
@@ -313,8 +334,10 @@ fn follow_player_with_camera(
 // Mod (%) by the column count to find which column the atlas is in.
 // Floor divide by the row count to find which row the atlas is in. Multiply by row count to return to that row.
 fn animate_sprites(
+    mut commands: Commands,
     fixed_time: Res<Time>,
     mut query: Query<(&mut AnimationTimer, &Acceleration, &mut Sprite3d)>,
+    sound_effects: Res<SoundEffects>,
 ) {
     let delta = fixed_time.delta();
     for (mut timer, acceleration, mut sprite_3d) in query.iter_mut() {
@@ -343,9 +366,10 @@ fn animate_sprites(
                 atlas.index = current_frame;
             }
 
-            // If the player just started moving, immediately switch to the first frame.
+            // If the player just started moving, immediately switch to the first frame, but don't play a sound.
             if timer.paused() {
                 timer.unpause();
+                // Increment and wrap
                 atlas.index += 5;
                 if atlas.index > 23 {
                     atlas.index = atlas.index % 5 + 5;
@@ -354,9 +378,29 @@ fn animate_sprites(
 
             timer.tick(delta);
             if timer.just_finished() {
+                // Increment and wrap
                 atlas.index += 5;
                 if atlas.index > 23 {
                     atlas.index = atlas.index % 5 + 5;
+                }
+                // Play walking sound
+                let current_frame = (atlas.index as f32 / 5.0).floor() as usize;
+                if current_frame == 1 {
+                    commands.spawn((
+                        AudioPlayer::new(sound_effects.walking_1.clone()),
+                        PlaybackSettings {
+                            mode: PlaybackMode::Despawn,
+                            ..default()
+                        },
+                    ));
+                } else if current_frame == 3 {
+                    commands.spawn((
+                        AudioPlayer::new(sound_effects.walking_2.clone()),
+                        PlaybackSettings {
+                            mode: PlaybackMode::Despawn,
+                            ..default()
+                        },
+                    ));
                 }
             }
         }
