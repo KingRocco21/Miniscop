@@ -1,7 +1,8 @@
 use crate::networking::MultiplayerState;
 use crate::networking::{setup_client_runtime, ServerConnection};
 use crate::AppState;
-use bevy::audio::PlaybackMode;
+use avian3d::prelude::*;
+use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use miniscop::networking::Packet;
@@ -10,7 +11,9 @@ use tokio::sync::mpsc::error::TrySendError;
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_sub_state::<OverworldState>()
+        app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin::default()))
+            .insert_resource(Gravity::ZERO)
+            .add_sub_state::<OverworldState>()
             .add_event::<OtherPlayerMoved>()
             .add_event::<OtherPlayerDisconnected>()
             .add_systems(
@@ -41,11 +44,8 @@ impl Plugin for OverworldPlugin {
             )
             .add_systems(
                 RunFixedMainLoop,
-                (
-                    handle_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
-                    interpolate_rendered_transform
-                        .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
-                )
+                handle_input
+                    .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop)
                     .run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
@@ -87,6 +87,10 @@ struct SoundEffects {
     walking_1: Handle<AudioSource>,
     walking_2: Handle<AudioSource>,
 }
+#[derive(Resource)]
+struct Music {
+    gift_plane: Handle<AudioSource>,
+}
 
 // Components
 #[derive(Component)]
@@ -113,34 +117,28 @@ struct Acceleration(Vec3);
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
 struct Velocity(Vec3);
 
-/// The actual position of the player in the physics simulation.
-/// This is separate from the `Transform`, which is merely a visual representation.
-///
-/// If you want to make sure that this component is always initialized
-/// with the same value as the `Transform`'s translation, you can
-/// use a [component lifecycle hook](https://docs.rs/bevy/0.14.0/bevy/ecs/component/struct.ComponentHooks.html)
-#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
-struct PhysicalTranslation(Vec3);
-
-/// The value [`PhysicalTranslation`] had in the last fixed timestep.
-/// Used for interpolation in the `interpolate_rendered_transform` system.
-#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
-struct PreviousPhysicalTranslation(Vec3);
-
 // Systems
 fn setup_overworld(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
+    // Todo: Spawn Blender's "Hitbox" objects with actual hitboxes by accessing the gltf.
+    // https://docs.rs/bevy/latest/bevy/gltf/struct.Gltf.html
     // Spawn blender scene
-    commands.spawn((
-        StateScoped(AppState::Overworld),
-        SceneRoot(
-            asset_server.load(GltfAssetLabel::Scene(0).from_asset("overworld/3d/Gift_Plane.glb")),
-        ),
-        Transform::default(),
-    ));
+    // let test = commands.spawn((
+    //     StateScoped(AppState::Overworld),
+    //     SceneRoot(
+    //         asset_server.load(GltfAssetLabel::Scene(0).from_asset("overworld/3d/Gift_Plane.glb")),
+    //     ),
+    //     RigidBody::Static,
+    //     ColliderConstructorHierarchy::new(ColliderConstructor::TrimeshFromMeshWithConfig(
+    //         TrimeshFlags::MERGE_DUPLICATE_VERTICES,
+    //     )),
+    // ));
+    // test.
+    // // Spawn blender hitboxes
+    // commands.spawn((StateScoped(AppState::Overworld),));
     // Start loading guardian
     commands.insert_resource(SpriteAssets {
         guardian_image: asset_server.load("overworld/2d/guardian.png"),
@@ -158,6 +156,10 @@ fn setup_overworld(
         walking_1: asset_server.load("overworld/sounds/walking_1.ogg"),
         walking_2: asset_server.load("overworld/sounds/walking_2.ogg"),
     });
+    // Start loading music
+    commands.insert_resource(Music {
+        gift_plane: asset_server.load("overworld/sounds/gift_plane.ogg"),
+    });
 }
 
 fn finish_loading(
@@ -165,6 +167,7 @@ fn finish_loading(
     asset_server: Res<AssetServer>,
     sprite_assets: Res<SpriteAssets>,
     sound_effects: Res<SoundEffects>,
+    music: Res<Music>,
     mut sprite3d_params: Sprite3dParams,
     mut next_state: ResMut<NextState<OverworldState>>,
 ) {
@@ -180,7 +183,11 @@ fn finish_loading(
         && asset_server
             .get_load_state(sound_effects.walking_2.id())
             .is_some_and(|state| state.is_loaded())
+        && asset_server
+            .get_load_state(music.gift_plane.id())
+            .is_some_and(|state| state.is_loaded())
     {
+        // Spawn player
         commands.spawn((
             StateScoped(AppState::Overworld),
             Sprite3dBuilder {
@@ -201,13 +208,30 @@ fn finish_loading(
             AccumulatedInput::default(),
             Acceleration::default(),
             Velocity::default(),
-            PhysicalTranslation(STARTING_TRANSLATION),
-            PreviousPhysicalTranslation(STARTING_TRANSLATION),
             Player,
             AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+            RigidBody::Dynamic,
+            // Todo: Fix hitbox size and position
+            Collider::cuboid(1.0, 1.0, 1.0),
+            LockedAxes::new()
+                .lock_rotation_x()
+                .lock_rotation_y()
+                .lock_rotation_z(),
+            TransformInterpolation,
         ));
 
-        // Only spawn camera after the player sprite is done loading.
+        // Spawn music
+        commands.spawn((
+            StateScoped(AppState::Overworld),
+            AudioPlayer::new(music.gift_plane.clone()),
+            PlaybackSettings {
+                mode: PlaybackMode::Loop,
+                volume: Volume::Linear(0.5),
+                ..default()
+            },
+        ));
+
+        // Spawn camera
         commands.spawn((
             StateScoped(AppState::Overworld),
             Camera3d::default(),
@@ -250,20 +274,13 @@ fn handle_input(
 fn advance_physics(
     fixed_time: Res<Time<Fixed>>,
     player: Single<(
-        &mut PhysicalTranslation,
-        &mut PreviousPhysicalTranslation,
+        &mut Transform,
         &mut AccumulatedInput,
         &Acceleration,
         &mut Velocity,
     )>,
 ) {
-    let (
-        mut current_physical_translation,
-        mut previous_physical_translation,
-        mut input,
-        acceleration,
-        mut velocity,
-    ) = player.into_inner();
+    let (mut transform, mut input, acceleration, mut velocity) = player.into_inner();
 
     // Advance velocity
     if acceleration.x == 0.0 {
@@ -293,32 +310,10 @@ fn advance_physics(
     velocity.0 = velocity.clamp(-MAX_VELOCITY_VEC, MAX_VELOCITY_VEC);
 
     // Advance position
-    previous_physical_translation.0 = current_physical_translation.0;
-    current_physical_translation.0 += velocity.0 * fixed_time.delta_secs();
+    transform.translation += velocity.0 * fixed_time.delta_secs();
 
     // Reset the input accumulator, as we are currently consuming all input that happened since the last fixed timestep.
     input.0 = Vec3::ZERO;
-}
-
-fn interpolate_rendered_transform(
-    fixed_time: Res<Time<Fixed>>,
-    mut query: Query<(
-        &mut Transform,
-        &PhysicalTranslation,
-        &PreviousPhysicalTranslation,
-    )>,
-) {
-    for (mut transform, current_physical_translation, previous_physical_translation) in
-        query.iter_mut()
-    {
-        let previous = previous_physical_translation.0;
-        let current = current_physical_translation.0;
-        // The overstep fraction is a value between 0 and 1 that tells us how far we are between two fixed timesteps.
-        let alpha = fixed_time.overstep_fraction();
-
-        let rendered_translation = previous.lerp(current, alpha);
-        transform.translation = rendered_translation;
-    }
 }
 
 fn follow_player_with_camera(
@@ -336,13 +331,13 @@ fn follow_player_with_camera(
 fn animate_sprites(
     mut commands: Commands,
     fixed_time: Res<Time>,
-    mut query: Query<(&mut AnimationTimer, &Acceleration, &mut Sprite3d)>,
+    mut query: Query<(&mut AnimationTimer, &Velocity, &mut Sprite3d)>,
     sound_effects: Res<SoundEffects>,
 ) {
     let delta = fixed_time.delta();
-    for (mut timer, acceleration, mut sprite_3d) in query.iter_mut() {
+    for (mut timer, velocity, mut sprite_3d) in query.iter_mut() {
         let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
-        if acceleration.length() == 0.0 {
+        if velocity.length() == 0.0 {
             // Stopped moving, so stop animation in current direction
             timer.pause();
             timer.reset();
@@ -352,16 +347,16 @@ fn animate_sprites(
             // Then update the animation to the current direction.
             // To be faithful to Petscop, left and right overrides forward and backward.
             let current_frame = (atlas.index as f32 / 5.0).floor() as usize * 5;
-            if acceleration.x < 0.0 {
+            if velocity.x < 0.0 {
                 // Left
                 atlas.index = current_frame + 2;
-            } else if acceleration.x > 0.0 {
+            } else if velocity.x > 0.0 {
                 // Right
                 atlas.index = current_frame + 1;
-            } else if acceleration.z < 0.0 {
+            } else if velocity.z < 0.0 {
                 // Forward
                 atlas.index = current_frame + 3;
-            } else if acceleration.z > 0.0 {
+            } else if velocity.z > 0.0 {
                 // Backward
                 atlas.index = current_frame;
             }
@@ -385,16 +380,18 @@ fn animate_sprites(
                 }
                 // Play walking sound
                 let current_frame = (atlas.index as f32 / 5.0).floor() as usize;
-                if current_frame == 1 {
+                if current_frame == 2 {
                     commands.spawn((
+                        StateScoped(AppState::Overworld),
                         AudioPlayer::new(sound_effects.walking_1.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
                             ..default()
                         },
                     ));
-                } else if current_frame == 3 {
+                } else if current_frame == 4 {
                     commands.spawn((
+                        StateScoped(AppState::Overworld),
                         AudioPlayer::new(sound_effects.walking_2.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
@@ -457,15 +454,15 @@ fn read_packets(
 fn send_current_position(
     connection: Res<ServerConnection>,
     mut next_state: ResMut<NextState<MultiplayerState>>,
-    position: Single<(&Velocity, &PhysicalTranslation, &Sprite3d)>,
+    position: Single<(&Velocity, &Transform, &Sprite3d)>,
 ) {
-    let (velocity, position, sprite_3d) = position.into_inner();
+    let (velocity, transform, sprite_3d) = position.into_inner();
     if velocity.length() != 0.0 {
         let packet = Packet::PlayerMovement {
             id: None,
-            x: position.x,
-            y: position.y,
-            z: position.z,
+            x: transform.translation.x,
+            y: transform.translation.y,
+            z: transform.translation.z,
             animation_frame: u8::try_from(sprite_3d.texture_atlas.as_ref().unwrap().index)
                 .expect("Sprite atlas index should fit within 0 and 255"),
         };
