@@ -1,8 +1,8 @@
 use crate::networking::stop_client_runtime_on_window_close;
 use crate::networking::MultiplayerState;
 use crate::plugins::garalina::GaralinaPlugin;
+use crate::plugins::gift_plane::GiftPlanePlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
-use crate::plugins::overworld::OverworldPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
 use bevy::prelude::*;
 use bevy::text::FontSmoothing;
@@ -48,9 +48,9 @@ fn main() {
                 },
             },
         ))
-        .insert_state(AppState::Overworld)
+        .insert_state(AppState::GiftPlane)
         .insert_state(MultiplayerState::Offline)
-        .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
+        .add_plugins((GaralinaPlugin, MainMenuPlugin, GiftPlanePlugin))
         .add_systems(Startup, setup)
         .add_systems(
             Update,
@@ -65,7 +65,7 @@ pub enum AppState {
     #[default]
     Garalina,
     MainMenu,
-    Overworld,
+    GiftPlane,
 }
 
 // Systems
