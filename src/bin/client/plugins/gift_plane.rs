@@ -188,8 +188,9 @@ fn finish_loading(
             SceneRoot(assets.level.clone()),
             RigidBody::Static,
             ColliderConstructorHierarchy::new(None)
-                .with_constructor_for_name("Hitbox Plane", ColliderConstructor::TrimeshFromMesh),
+                .with_constructor_for_name("Hitbox Mesh", ColliderConstructor::TrimeshFromMesh),
         ));
+        commands.spawn((RigidBody::Static, Collider::cuboid(1.0, 1.0, 1.0)));
         // Spawn player
         commands.spawn((
             StateScoped(AppState::GiftPlane),
