@@ -75,23 +75,47 @@ enum GiftPlaneState {
 }
 
 // Resources
-// Todo: Combine everything into GiftPlaneAssetCollection
-#[derive(Resource, Deref, DerefMut)]
-struct SceneHandle(Handle<Scene>);
 #[derive(Resource)]
-struct SpriteHandles {
+struct GiftPlaneAssetCollection {
+    level: Handle<Scene>,
+    sprites: GiftPlaneSprites,
+    sound_effects: GiftPlaneSoundEffects,
+    songs: GiftPlaneSongs,
+}
+struct GiftPlaneSprites {
     guardian_image: Handle<Image>,
     other_player_image: Handle<Image>,
-    layout: Handle<TextureAtlasLayout>,
+    sprite_layout: Handle<TextureAtlasLayout>,
 }
-#[derive(Resource)]
-struct SoundEffectHandles {
+struct GiftPlaneSoundEffects {
     walking_1: Handle<AudioSource>,
     walking_2: Handle<AudioSource>,
 }
-#[derive(Resource)]
-struct MusicHandle {
+struct GiftPlaneSongs {
     gift_plane: Handle<AudioSource>,
+}
+
+impl GiftPlaneAssetCollection {
+    fn all_assets_are_loaded(&self, asset_server: &Res<AssetServer>) -> bool {
+        asset_server
+            .get_load_state(self.level.id())
+            .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sprites.guardian_image.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sprites.other_player_image.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sound_effects.walking_1.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sound_effects.walking_2.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.songs.gift_plane.id())
+                .is_some_and(|state| state.is_loaded())
+    }
 }
 
 // Components
@@ -125,65 +149,43 @@ fn setup_gift_plane(
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
-    commands.insert_resource(SceneHandle(
-        asset_server.load(GltfAssetLabel::Scene(0).from_asset("gift_plane/3d/Gift_Plane.glb")),
-    ));
-    // Start loading guardian
-    commands.insert_resource(SpriteHandles {
-        guardian_image: asset_server.load("gift_plane/2d/guardian.png"),
-        other_player_image: asset_server.load("gift_plane/2d/other_player.png"),
-        layout: texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
-            UVec2::splat(64),
-            5,
-            5,
-            None,
-            None,
-        )),
-    });
-    // Start loading sound effects
-    commands.insert_resource(SoundEffectHandles {
-        walking_1: asset_server.load("gift_plane/sounds/walking_1.ogg"),
-        walking_2: asset_server.load("gift_plane/sounds/walking_2.ogg"),
-    });
-    // Start loading music
-    commands.insert_resource(MusicHandle {
-        gift_plane: asset_server.load("gift_plane/sounds/gift_plane.ogg"),
+    // Start loading assets
+    commands.insert_resource(GiftPlaneAssetCollection {
+        level: asset_server
+            .load(GltfAssetLabel::Scene(0).from_asset("gift_plane/3d/Gift_Plane.glb")),
+        sprites: GiftPlaneSprites {
+            guardian_image: asset_server.load("gift_plane/2d/guardian.png"),
+            other_player_image: asset_server.load("gift_plane/2d/other_player.png"),
+            sprite_layout: texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
+                UVec2::splat(64),
+                5,
+                5,
+                None,
+                None,
+            )),
+        },
+        sound_effects: GiftPlaneSoundEffects {
+            walking_1: asset_server.load("gift_plane/sounds/walking_1.ogg"),
+            walking_2: asset_server.load("gift_plane/sounds/walking_2.ogg"),
+        },
+        songs: GiftPlaneSongs {
+            gift_plane: asset_server.load("gift_plane/sounds/gift_plane.ogg"),
+        },
     });
 }
 
 fn finish_loading(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    scene_handle: Res<SceneHandle>,
-    sprite_handles: Res<SpriteHandles>,
-    sound_effect_handles: Res<SoundEffectHandles>,
-    music_handle: Res<MusicHandle>,
+    assets: Res<GiftPlaneAssetCollection>,
     mut sprite3d_params: Sprite3dParams,
     mut next_state: ResMut<NextState<GiftPlaneState>>,
 ) {
-    if asset_server
-        .get_load_state(scene_handle.id())
-        .is_some_and(|state| state.is_loaded())
-        && asset_server
-            .get_load_state(sprite_handles.guardian_image.id())
-            .is_some_and(|state| state.is_loaded())
-        && asset_server
-            .get_load_state(sprite_handles.other_player_image.id())
-            .is_some_and(|state| state.is_loaded())
-        && asset_server
-            .get_load_state(sound_effect_handles.walking_1.id())
-            .is_some_and(|state| state.is_loaded())
-        && asset_server
-            .get_load_state(sound_effect_handles.walking_2.id())
-            .is_some_and(|state| state.is_loaded())
-        && asset_server
-            .get_load_state(music_handle.gift_plane.id())
-            .is_some_and(|state| state.is_loaded())
-    {
+    if assets.all_assets_are_loaded(&asset_server) {
         // Spawn level
         commands.spawn((
             StateScoped(AppState::GiftPlane),
-            SceneRoot(scene_handle.0.clone()),
+            SceneRoot(assets.level.clone()),
             RigidBody::Static,
             ColliderConstructorHierarchy::new(None)
                 .with_constructor_for_name("Hitbox Plane", ColliderConstructor::TrimeshFromMesh),
@@ -192,7 +194,7 @@ fn finish_loading(
         commands.spawn((
             StateScoped(AppState::GiftPlane),
             Sprite3dBuilder {
-                image: sprite_handles.guardian_image.clone(),
+                image: assets.sprites.guardian_image.clone(),
                 pixels_per_metre: SPRITE_PIXELS_PER_METER,
                 double_sided: false,
                 unlit: true,
@@ -201,7 +203,7 @@ fn finish_loading(
             .bundle_with_atlas(
                 &mut sprite3d_params,
                 TextureAtlas {
-                    layout: sprite_handles.layout.clone(),
+                    layout: assets.sprites.sprite_layout.clone(),
                     index: 0,
                 },
             ),
@@ -224,7 +226,7 @@ fn finish_loading(
         // Spawn music
         commands.spawn((
             StateScoped(AppState::GiftPlane),
-            AudioPlayer::new(music_handle.gift_plane.clone()),
+            AudioPlayer::new(assets.songs.gift_plane.clone()),
             PlaybackSettings {
                 mode: PlaybackMode::Loop,
                 volume: Volume::Linear(0.5),
@@ -333,7 +335,7 @@ fn animate_sprites(
     mut commands: Commands,
     fixed_time: Res<Time>,
     mut query: Query<(&mut AnimationTimer, &Velocity, &mut Sprite3d)>,
-    sound_effects: Res<SoundEffectHandles>,
+    assets: Res<GiftPlaneAssetCollection>,
 ) {
     let delta = fixed_time.delta();
     for (mut timer, velocity, mut sprite_3d) in query.iter_mut() {
@@ -384,7 +386,7 @@ fn animate_sprites(
                 if current_frame == 2 {
                     commands.spawn((
                         StateScoped(AppState::GiftPlane),
-                        AudioPlayer::new(sound_effects.walking_1.clone()),
+                        AudioPlayer::new(assets.sound_effects.walking_1.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
                             ..default()
@@ -393,7 +395,7 @@ fn animate_sprites(
                 } else if current_frame == 4 {
                     commands.spawn((
                         StateScoped(AppState::GiftPlane),
-                        AudioPlayer::new(sound_effects.walking_2.clone()),
+                        AudioPlayer::new(assets.sound_effects.walking_2.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
                             ..default()
@@ -483,7 +485,7 @@ fn send_current_position(
 /// This system updates the transforms of other players, and spawns the player if they don't exist yet.
 fn on_other_player_moved(
     mut commands: Commands,
-    sprite_assets: Res<SpriteHandles>,
+    assets: Res<GiftPlaneAssetCollection>,
     mut sprite3d_params: Sprite3dParams,
     mut player_moved: EventReader<OtherPlayerMoved>,
     mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite3d)>,
@@ -502,7 +504,7 @@ fn on_other_player_moved(
                 StateScoped(MultiplayerState::Online),
                 OtherPlayer { id: movement.id },
                 Sprite3dBuilder {
-                    image: sprite_assets.other_player_image.clone(),
+                    image: assets.sprites.other_player_image.clone(),
                     pixels_per_metre: SPRITE_PIXELS_PER_METER,
                     double_sided: false,
                     unlit: true,
@@ -511,7 +513,7 @@ fn on_other_player_moved(
                 .bundle_with_atlas(
                     &mut sprite3d_params,
                     TextureAtlas {
-                        layout: sprite_assets.layout.clone(),
+                        layout: assets.sprites.sprite_layout.clone(),
                         index: movement.animation_frame,
                     },
                 ),
