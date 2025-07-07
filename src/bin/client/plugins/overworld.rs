@@ -8,20 +8,20 @@ use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use miniscop::networking::Packet;
 use tokio::sync::mpsc::error::TrySendError;
 
-pub struct GiftPlanePlugin;
-impl Plugin for GiftPlanePlugin {
+pub struct OverworldPlugin;
+impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin::default()))
-            .add_sub_state::<GiftPlaneState>()
+            .add_sub_state::<OverworldState>()
             .add_event::<OtherPlayerMoved>()
             .add_event::<OtherPlayerDisconnected>()
             .add_systems(
-                OnEnter(AppState::GiftPlane),
-                (setup_gift_plane, setup_client_runtime),
+                OnEnter(AppState::Overworld),
+                (setup_overworld, setup_client_runtime),
             )
             .add_systems(
                 Update,
-                finish_loading.run_if(in_state(GiftPlaneState::Loading)),
+                finish_loading.run_if(in_state(OverworldState::LoadingScreen)),
             )
             .add_systems(
                 FixedUpdate,
@@ -39,17 +39,17 @@ impl Plugin for GiftPlanePlugin {
                     animate_sprites,
                 )
                     .chain()
-                    .run_if(in_state(GiftPlaneState::InGame)),
+                    .run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
                 RunFixedMainLoop,
                 handle_input
                     .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop)
-                    .run_if(in_state(GiftPlaneState::InGame)),
+                    .run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
                 Update,
-                (follow_player_with_camera,).run_if(in_state(GiftPlaneState::InGame)),
+                (follow_player_with_camera,).run_if(in_state(OverworldState::InGame)),
             );
     }
 }
@@ -64,38 +64,38 @@ const MAX_ACCELERATION_VEC: Vec3 = Vec3::splat(ACCELERATION);
 const VELOCITY: f32 = 5.0;
 const MAX_VELOCITY_VEC: Vec3 = Vec3::splat(VELOCITY);
 
-// Gift Plane Sub-States
+// Sub-States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
-#[source(AppState = AppState::GiftPlane)]
+#[source(AppState = AppState::Overworld)]
 #[states(scoped_entities)]
-enum GiftPlaneState {
+enum OverworldState {
     #[default]
-    Loading,
+    LoadingScreen,
     InGame,
 }
 
 // Resources
 #[derive(Resource)]
-struct GiftPlaneAssetCollection {
+struct OverworldAssetCollection {
     level: Handle<Scene>,
-    sprites: GiftPlaneSprites,
-    sound_effects: GiftPlaneSoundEffects,
-    songs: GiftPlaneSongs,
+    sprites: OverworldSprites,
+    sound_effects: OverworldSoundEffects,
+    songs: OverworldSongs,
 }
-struct GiftPlaneSprites {
+struct OverworldSprites {
     guardian_image: Handle<Image>,
     other_player_image: Handle<Image>,
     sprite_layout: Handle<TextureAtlasLayout>,
 }
-struct GiftPlaneSoundEffects {
+struct OverworldSoundEffects {
     walking_1: Handle<AudioSource>,
     walking_2: Handle<AudioSource>,
 }
-struct GiftPlaneSongs {
+struct OverworldSongs {
     gift_plane: Handle<AudioSource>,
 }
 
-impl GiftPlaneAssetCollection {
+impl OverworldAssetCollection {
     fn all_assets_are_loaded(&self, asset_server: &Res<AssetServer>) -> bool {
         asset_server
             .get_load_state(self.level.id())
@@ -144,18 +144,18 @@ struct Acceleration(Vec3);
 struct Velocity(Vec3);
 
 // Systems
-fn setup_gift_plane(
+fn setup_overworld(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     // Start loading assets
-    commands.insert_resource(GiftPlaneAssetCollection {
+    commands.insert_resource(OverworldAssetCollection {
         level: asset_server
-            .load(GltfAssetLabel::Scene(0).from_asset("gift_plane/3d/Gift_Plane.glb")),
-        sprites: GiftPlaneSprites {
-            guardian_image: asset_server.load("gift_plane/2d/guardian.png"),
-            other_player_image: asset_server.load("gift_plane/2d/other_player.png"),
+            .load(GltfAssetLabel::Scene(0).from_asset("overworld/3d/Gift_Plane.glb")),
+        sprites: OverworldSprites {
+            guardian_image: asset_server.load("overworld/2d/guardian.png"),
+            other_player_image: asset_server.load("overworld/2d/other_player.png"),
             sprite_layout: texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
                 UVec2::splat(64),
                 5,
@@ -164,12 +164,12 @@ fn setup_gift_plane(
                 None,
             )),
         },
-        sound_effects: GiftPlaneSoundEffects {
-            walking_1: asset_server.load("gift_plane/sounds/walking_1.ogg"),
-            walking_2: asset_server.load("gift_plane/sounds/walking_2.ogg"),
+        sound_effects: OverworldSoundEffects {
+            walking_1: asset_server.load("overworld/sounds/walking_1.ogg"),
+            walking_2: asset_server.load("overworld/sounds/walking_2.ogg"),
         },
-        songs: GiftPlaneSongs {
-            gift_plane: asset_server.load("gift_plane/sounds/gift_plane.ogg"),
+        songs: OverworldSongs {
+            gift_plane: asset_server.load("overworld/sounds/overworld.ogg"),
         },
     });
 }
@@ -177,14 +177,14 @@ fn setup_gift_plane(
 fn finish_loading(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
-    assets: Res<GiftPlaneAssetCollection>,
+    assets: Res<OverworldAssetCollection>,
     mut sprite3d_params: Sprite3dParams,
-    mut next_state: ResMut<NextState<GiftPlaneState>>,
+    mut next_state: ResMut<NextState<OverworldState>>,
 ) {
     if assets.all_assets_are_loaded(&asset_server) {
         // Spawn level
         commands.spawn((
-            StateScoped(AppState::GiftPlane),
+            StateScoped(AppState::Overworld),
             SceneRoot(assets.level.clone()),
             RigidBody::Static,
             ColliderConstructorHierarchy::new(None)
@@ -193,7 +193,7 @@ fn finish_loading(
         commands.spawn((RigidBody::Static, Collider::cuboid(1.0, 1.0, 1.0)));
         // Spawn player
         commands.spawn((
-            StateScoped(AppState::GiftPlane),
+            StateScoped(AppState::Overworld),
             Sprite3dBuilder {
                 image: assets.sprites.guardian_image.clone(),
                 pixels_per_metre: SPRITE_PIXELS_PER_METER,
@@ -226,7 +226,7 @@ fn finish_loading(
 
         // Spawn music
         commands.spawn((
-            StateScoped(AppState::GiftPlane),
+            StateScoped(AppState::Overworld),
             AudioPlayer::new(assets.songs.gift_plane.clone()),
             PlaybackSettings {
                 mode: PlaybackMode::Loop,
@@ -237,7 +237,7 @@ fn finish_loading(
 
         // Spawn camera
         commands.spawn((
-            StateScoped(AppState::GiftPlane),
+            StateScoped(AppState::Overworld),
             Camera3d::default(),
             Camera {
                 clear_color: ClearColorConfig::Custom(Color::WHITE),
@@ -246,7 +246,7 @@ fn finish_loading(
             Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
         ));
 
-        next_state.set(GiftPlaneState::InGame);
+        next_state.set(OverworldState::InGame);
     }
 }
 
@@ -336,7 +336,7 @@ fn animate_sprites(
     mut commands: Commands,
     fixed_time: Res<Time>,
     mut query: Query<(&mut AnimationTimer, &Velocity, &mut Sprite3d)>,
-    assets: Res<GiftPlaneAssetCollection>,
+    assets: Res<OverworldAssetCollection>,
 ) {
     let delta = fixed_time.delta();
     for (mut timer, velocity, mut sprite_3d) in query.iter_mut() {
@@ -386,7 +386,7 @@ fn animate_sprites(
                 let current_frame = (atlas.index as f32 / 5.0).floor() as usize;
                 if current_frame == 2 {
                     commands.spawn((
-                        StateScoped(AppState::GiftPlane),
+                        StateScoped(AppState::Overworld),
                         AudioPlayer::new(assets.sound_effects.walking_1.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
@@ -395,7 +395,7 @@ fn animate_sprites(
                     ));
                 } else if current_frame == 4 {
                     commands.spawn((
-                        StateScoped(AppState::GiftPlane),
+                        StateScoped(AppState::Overworld),
                         AudioPlayer::new(assets.sound_effects.walking_2.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
@@ -486,7 +486,7 @@ fn send_current_position(
 /// This system updates the transforms of other players, and spawns the player if they don't exist yet.
 fn on_other_player_moved(
     mut commands: Commands,
-    assets: Res<GiftPlaneAssetCollection>,
+    assets: Res<OverworldAssetCollection>,
     mut sprite3d_params: Sprite3dParams,
     mut player_moved: EventReader<OtherPlayerMoved>,
     mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite3d)>,
