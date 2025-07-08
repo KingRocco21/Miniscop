@@ -1,7 +1,6 @@
 mod multiplayer;
 
 use crate::AppState;
-use avian3d::prelude::*;
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
@@ -10,8 +9,7 @@ use multiplayer::MultiplayerState;
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin::default()))
-            .add_sub_state::<OverworldState>()
+        app.add_sub_state::<OverworldState>()
             .init_state::<MultiplayerState>()
             .add_event::<multiplayer::OtherPlayerMoved>()
             .add_event::<multiplayer::OtherPlayerDisconnected>()
@@ -52,7 +50,9 @@ impl Plugin for OverworldPlugin {
             )
             .add_systems(
                 Update,
-                follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
+                (interpolate_rendered_transform, follow_player_with_camera)
+                    .chain()
+                    .run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
                 Update,
@@ -147,6 +147,20 @@ struct Acceleration(Vec3);
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
 struct Velocity(Vec3);
 
+/// The actual position of the player in the physics simulation.
+/// This is separate from the `Transform`, which is merely a visual representation.
+///
+/// If you want to make sure that this component is always initialized
+/// with the same value as the `Transform`'s translation, you can
+/// use a [component lifecycle hook](https://docs.rs/bevy/0.14.0/bevy/ecs/component/struct.ComponentHooks.html)
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
+struct PhysicalTranslation(Vec3);
+
+/// The value [`PhysicalTranslation`] had in the last fixed timestep.
+/// Used for interpolation in the `interpolate_rendered_transform` system.
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
+struct PreviousPhysicalTranslation(Vec3);
+
 // Systems
 fn setup_overworld(
     mut commands: Commands,
@@ -190,11 +204,7 @@ fn finish_loading(
         commands.spawn((
             StateScoped(AppState::Overworld),
             SceneRoot(assets.level.clone()),
-            RigidBody::Static,
-            ColliderConstructorHierarchy::new(None)
-                .with_constructor_for_name("Hitbox Mesh", ColliderConstructor::TrimeshFromMesh),
         ));
-        commands.spawn((RigidBody::Static, Collider::cuboid(1.0, 1.0, 1.0)));
         // Spawn player
         commands.spawn((
             StateScoped(AppState::Overworld),
@@ -218,14 +228,6 @@ fn finish_loading(
             Velocity::default(),
             Player,
             AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
-            RigidBody::Dynamic,
-            // Todo: Fix hitbox size and position
-            Collider::cuboid(1.0, 1.0, 1.0),
-            LockedAxes::new()
-                .lock_rotation_x()
-                .lock_rotation_y()
-                .lock_rotation_z(),
-            TransformInterpolation,
         ));
 
         // Spawn music
@@ -324,6 +326,27 @@ fn advance_physics(
     input.0 = Vec3::ZERO;
 }
 
+fn interpolate_rendered_transform(
+    fixed_time: Res<Time<Fixed>>,
+    mut query: Query<(
+        &mut Transform,
+        &PhysicalTranslation,
+        &PreviousPhysicalTranslation,
+    )>,
+) {
+    for (mut transform, current_physical_translation, previous_physical_translation) in
+        query.iter_mut()
+    {
+        let previous = previous_physical_translation.0;
+        let current = current_physical_translation.0;
+        // The overstep fraction is a value between 0 and 1 that tells us how far we are between two fixed timesteps.
+        let alpha = fixed_time.overstep_fraction();
+
+        let rendered_translation = previous.lerp(current, alpha);
+        transform.translation = rendered_translation;
+    }
+}
+
 fn follow_player_with_camera(
     player_transform: Single<&Transform, With<Player>>,
     mut camera_transform: Single<&mut Transform, (With<Camera3d>, Without<Player>)>,
@@ -345,7 +368,7 @@ fn animate_sprites(
     let delta = fixed_time.delta();
     for (mut timer, velocity, mut sprite_3d) in query.iter_mut() {
         let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
-        if velocity.length() == 0.0 {
+        if velocity.xz().length() == 0.0 {
             // Stopped moving, so stop animation in current direction
             timer.pause();
             timer.reset();
