@@ -1,5 +1,3 @@
-use crate::networking::stop_client_runtime_on_window_close;
-use crate::networking::MultiplayerState;
 use crate::plugins::garalina::GaralinaPlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
 use crate::plugins::overworld::OverworldPlugin;
@@ -11,7 +9,6 @@ use bevy_obj::ObjPlugin;
 use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
 
-mod networking;
 mod plugins;
 
 fn main() {
@@ -49,13 +46,8 @@ fn main() {
             },
         ))
         .insert_state(AppState::Overworld)
-        .insert_state(MultiplayerState::Offline)
         .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
         .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            stop_client_runtime_on_window_close.run_if(in_state(MultiplayerState::Online)),
-        )
         .run();
 }
 

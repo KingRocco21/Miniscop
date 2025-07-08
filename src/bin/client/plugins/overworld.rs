@@ -1,45 +1,27 @@
-use crate::networking::MultiplayerState;
-use crate::networking::{setup_client_runtime, ServerConnection};
+mod multiplayer;
+
 use crate::AppState;
 use avian3d::prelude::*;
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
-use miniscop::networking::Packet;
-use tokio::sync::mpsc::error::TrySendError;
+use multiplayer::MultiplayerState;
 
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((PhysicsPlugins::default(), PhysicsDebugPlugin::default()))
             .add_sub_state::<OverworldState>()
-            .add_event::<OtherPlayerMoved>()
-            .add_event::<OtherPlayerDisconnected>()
+            .init_state::<MultiplayerState>()
+            .add_event::<multiplayer::OtherPlayerMoved>()
+            .add_event::<multiplayer::OtherPlayerDisconnected>()
             .add_systems(
                 OnEnter(AppState::Overworld),
-                (setup_overworld, setup_client_runtime),
+                (setup_overworld, multiplayer::setup_client_runtime),
             )
             .add_systems(
                 Update,
                 finish_loading.run_if(in_state(OverworldState::LoadingScreen)),
-            )
-            .add_systems(
-                FixedUpdate,
-                (
-                    // These must be run in this order because each one is dependent on the next.
-                    read_packets.run_if(
-                        in_state(MultiplayerState::Connecting)
-                            .or(in_state(MultiplayerState::Online)),
-                    ),
-                    (on_other_player_moved, on_other_player_disconnected)
-                        .chain()
-                        .run_if(in_state(MultiplayerState::Online)),
-                    advance_physics,
-                    send_current_position.run_if(in_state(MultiplayerState::Online)),
-                    animate_sprites,
-                )
-                    .chain()
-                    .run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
                 RunFixedMainLoop,
@@ -48,8 +30,34 @@ impl Plugin for OverworldPlugin {
                     .run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
+                FixedUpdate,
+                (
+                    // These must be run in this order because each one is dependent on the next.
+                    multiplayer::read_packets.run_if(
+                        in_state(MultiplayerState::Connecting)
+                            .or(in_state(MultiplayerState::Online)),
+                    ),
+                    (
+                        multiplayer::on_other_player_moved,
+                        multiplayer::on_other_player_disconnected,
+                    )
+                        .chain()
+                        .run_if(in_state(MultiplayerState::Online)),
+                    advance_physics,
+                    multiplayer::send_current_position.run_if(in_state(MultiplayerState::Online)),
+                    animate_sprites,
+                )
+                    .chain()
+                    .run_if(in_state(OverworldState::InGame)),
+            )
+            .add_systems(
                 Update,
-                (follow_player_with_camera,).run_if(in_state(OverworldState::InGame)),
+                follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
+            )
+            .add_systems(
+                Update,
+                multiplayer::stop_client_runtime_on_window_close
+                    .run_if(in_state(MultiplayerState::Online)),
             );
     }
 }
@@ -121,10 +129,6 @@ impl OverworldAssetCollection {
 // Components
 #[derive(Component)]
 struct Player;
-#[derive(Component)]
-struct OtherPlayer {
-    id: u64,
-}
 #[derive(Component, Deref, DerefMut)]
 struct AnimationTimer(Timer);
 
@@ -169,7 +173,7 @@ fn setup_overworld(
             walking_2: asset_server.load("overworld/sounds/walking_2.ogg"),
         },
         songs: OverworldSongs {
-            gift_plane: asset_server.load("overworld/sounds/overworld.ogg"),
+            gift_plane: asset_server.load("overworld/sounds/gift_plane.ogg"),
         },
     });
 }
@@ -402,138 +406,6 @@ fn animate_sprites(
                             ..default()
                         },
                     ));
-                }
-            }
-        }
-    }
-}
-
-// Events
-#[derive(Event)]
-struct OtherPlayerMoved {
-    id: u64,
-    translation: Vec3,
-    animation_frame: usize,
-}
-#[derive(Event)]
-struct OtherPlayerDisconnected(u64);
-
-/// This system reads incoming packets, and fires a matching event for each one.
-/// This system is responsible for setting MultiplayerState to Online whenever the server says it is connected.
-#[tracing::instrument(skip(connection, next_state, player_moved, player_disconnected))]
-fn read_packets(
-    mut connection: ResMut<ServerConnection>,
-    mut next_state: ResMut<NextState<MultiplayerState>>,
-    mut player_moved: EventWriter<OtherPlayerMoved>,
-    mut player_disconnected: EventWriter<OtherPlayerDisconnected>,
-) {
-    // let time = Instant::now();
-    while let Ok(packet) = connection.from_server.try_recv() {
-        match packet {
-            Packet::ClientConnect => next_state.set(MultiplayerState::Online),
-            Packet::ClientDisconnect(id) => match id {
-                None => next_state.set(MultiplayerState::Offline),
-                Some(id) => {
-                    player_disconnected.write(OtherPlayerDisconnected(id));
-                }
-            },
-            Packet::PlayerMovement {
-                id,
-                x,
-                y,
-                z,
-                animation_frame,
-            } => {
-                player_moved.write(OtherPlayerMoved {
-                    id: id.expect("Server should send id of movement. Please report to dev."),
-                    translation: Vec3::new(x, y, z),
-                    animation_frame: animation_frame as usize,
-                });
-            }
-        }
-    }
-    // info!("Took {:?}", time.elapsed());
-}
-
-fn send_current_position(
-    connection: Res<ServerConnection>,
-    mut next_state: ResMut<NextState<MultiplayerState>>,
-    position: Single<(&Velocity, &Transform, &Sprite3d)>,
-) {
-    let (velocity, transform, sprite_3d) = position.into_inner();
-    if velocity.length() != 0.0 {
-        let packet = Packet::PlayerMovement {
-            id: None,
-            x: transform.translation.x,
-            y: transform.translation.y,
-            z: transform.translation.z,
-            animation_frame: u8::try_from(sprite_3d.texture_atlas.as_ref().unwrap().index)
-                .expect("Sprite atlas index should fit within 0 and 255"),
-        };
-        match connection.to_client.try_send(packet) {
-            Ok(_) => {}
-            Err(TrySendError::Full(_)) => {
-                info!("Packet channel is full, packet not sent.");
-            }
-            Err(TrySendError::Closed(_)) => {
-                error!("Packet channel is closed, no longer sending packets.");
-                next_state.set(MultiplayerState::Offline);
-            }
-        }
-    }
-}
-
-/// This system updates the transforms of other players, and spawns the player if they don't exist yet.
-fn on_other_player_moved(
-    mut commands: Commands,
-    assets: Res<OverworldAssetCollection>,
-    mut sprite3d_params: Sprite3dParams,
-    mut player_moved: EventReader<OtherPlayerMoved>,
-    mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite3d)>,
-) {
-    for movement in player_moved.read() {
-        let mut found_player = false;
-        for (other_player, mut transform, mut sprite_3d) in query.iter_mut() {
-            if other_player.id == movement.id {
-                transform.translation = movement.translation;
-                sprite_3d.texture_atlas.as_mut().unwrap().index = movement.animation_frame;
-                found_player = true;
-            }
-        }
-        if !found_player {
-            commands.spawn((
-                StateScoped(MultiplayerState::Online),
-                OtherPlayer { id: movement.id },
-                Sprite3dBuilder {
-                    image: assets.sprites.other_player_image.clone(),
-                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
-                    double_sided: false,
-                    unlit: true,
-                    ..default()
-                }
-                .bundle_with_atlas(
-                    &mut sprite3d_params,
-                    TextureAtlas {
-                        layout: assets.sprites.sprite_layout.clone(),
-                        index: movement.animation_frame,
-                    },
-                ),
-                Transform::from_translation(movement.translation),
-            ));
-        }
-    }
-}
-
-fn on_other_player_disconnected(
-    mut commands: Commands,
-    mut players_disconnected: EventReader<OtherPlayerDisconnected>,
-    query: Query<(&OtherPlayer, Entity)>,
-) {
-    for player_disconnected in players_disconnected.read() {
-        for (other_player, entity) in query.iter() {
-            if other_player.id == player_disconnected.0 {
-                if let Ok(mut entity) = commands.get_entity(entity) {
-                    entity.despawn();
                 }
             }
         }
