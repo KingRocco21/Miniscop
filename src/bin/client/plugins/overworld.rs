@@ -1,8 +1,11 @@
 mod multiplayer;
+mod physics;
 
 use crate::AppState;
 use bevy::audio::{PlaybackMode, Volume};
+use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy_rapier3d::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use multiplayer::MultiplayerState;
 
@@ -50,9 +53,7 @@ impl Plugin for OverworldPlugin {
             )
             .add_systems(
                 Update,
-                (interpolate_rendered_transform, follow_player_with_camera)
-                    .chain()
-                    .run_if(in_state(OverworldState::InGame)),
+                follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
             )
             .add_systems(
                 Update,
@@ -143,24 +144,6 @@ struct AccumulatedInput(Vec3);
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
 struct Acceleration(Vec3);
 
-/// A vector representing the player's velocity in the physics simulation.
-#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
-struct Velocity(Vec3);
-
-/// The actual position of the player in the physics simulation.
-/// This is separate from the `Transform`, which is merely a visual representation.
-///
-/// If you want to make sure that this component is always initialized
-/// with the same value as the `Transform`'s translation, you can
-/// use a [component lifecycle hook](https://docs.rs/bevy/0.14.0/bevy/ecs/component/struct.ComponentHooks.html)
-#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
-struct PhysicalTranslation(Vec3);
-
-/// The value [`PhysicalTranslation`] had in the last fixed timestep.
-/// Used for interpolation in the `interpolate_rendered_transform` system.
-#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
-struct PreviousPhysicalTranslation(Vec3);
-
 // Systems
 fn setup_overworld(
     mut commands: Commands,
@@ -204,31 +187,61 @@ fn finish_loading(
         commands.spawn((
             StateScoped(AppState::Overworld),
             SceneRoot(assets.level.clone()),
+            Transform::default(),
+            RigidBody::Fixed,
+            AsyncSceneCollider {
+                named_shapes: HashMap::from([(
+                    "Hitbox Mesh".to_string(),
+                    Some(ComputedColliderShape::ConvexDecomposition(
+                        VHACDParameters::default(),
+                    )),
+                )]),
+                ..default()
+            },
+            Ccd::enabled(),
         ));
         // Spawn player
-        commands.spawn((
-            StateScoped(AppState::Overworld),
-            Sprite3dBuilder {
-                image: assets.sprites.guardian_image.clone(),
-                pixels_per_metre: SPRITE_PIXELS_PER_METER,
-                double_sided: false,
-                unlit: true,
-                ..default()
-            }
-            .bundle_with_atlas(
-                &mut sprite3d_params,
-                TextureAtlas {
-                    layout: assets.sprites.sprite_layout.clone(),
-                    index: 0,
+        commands
+            .spawn((
+                StateScoped(AppState::Overworld),
+                Sprite3dBuilder {
+                    image: assets.sprites.guardian_image.clone(),
+                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
+                    double_sided: false,
+                    unlit: true,
+                    ..default()
+                }
+                .bundle_with_atlas(
+                    &mut sprite3d_params,
+                    TextureAtlas {
+                        layout: assets.sprites.sprite_layout.clone(),
+                        index: 0,
+                    },
+                ),
+                Transform::from_translation(STARTING_TRANSLATION),
+                AccumulatedInput::default(),
+                ExternalForce::default(),
+                RigidBody::Dynamic,
+                Collider::cuboid(1.0, 1.0, 1.0),
+                Friction {
+                    coefficient: 0.0,
+                    combine_rule: CoefficientCombineRule::Min,
                 },
-            ),
-            Transform::from_translation(STARTING_TRANSLATION),
-            AccumulatedInput::default(),
-            Acceleration::default(),
-            Velocity::default(),
-            Player,
-            AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
-        ));
+                Restitution {
+                    coefficient: 0.0,
+                    combine_rule: CoefficientCombineRule::Min,
+                },
+                Acceleration::default(),
+                Velocity::zero(),
+                Ccd::enabled(),
+                LockedAxes::ROTATION_LOCKED,
+                Dominance::group(1),
+                TransformInterpolation::default(),
+            ))
+            .insert((
+                Player,
+                AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+            ));
 
         // Spawn music
         commands.spawn((
@@ -283,68 +296,40 @@ fn handle_input(
 /// Advance the physics simulation by one fixed timestep. This may run zero or multiple times per frame.
 fn advance_physics(
     fixed_time: Res<Time<Fixed>>,
-    player: Single<(
-        &mut Transform,
-        &mut AccumulatedInput,
-        &Acceleration,
-        &mut Velocity,
-    )>,
+    player: Single<(&mut AccumulatedInput, &Acceleration, &mut Velocity)>,
 ) {
-    let (mut transform, mut input, acceleration, mut velocity) = player.into_inner();
+    let (mut input, acceleration, mut velocity) = player.into_inner();
+    let mut linvel = velocity.linvel;
 
     // Advance velocity
     if acceleration.x == 0.0 {
-        if velocity.x < 0.0 {
-            velocity.x += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
-            velocity.x = velocity.x.min(0.0);
-        } else if velocity.x > 0.0 {
-            velocity.x -= MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
-            velocity.x = velocity.x.max(0.0);
+        if linvel.x < 0.0 {
+            linvel.x += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
+            linvel.x = linvel.x.min(0.0);
+        } else if linvel.x > 0.0 {
+            linvel.x -= MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
+            linvel.x = linvel.x.max(0.0);
         }
     } else {
-        velocity.x += acceleration.x * fixed_time.delta_secs();
+        linvel.x += acceleration.x * fixed_time.delta_secs();
     }
 
     if acceleration.z == 0.0 {
-        if velocity.z < 0.0 {
-            velocity.z += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
-            velocity.z = velocity.z.min(0.0);
-        } else if velocity.z > 0.0 {
-            velocity.z -= MAX_ACCELERATION_VEC.z * fixed_time.delta_secs();
-            velocity.z = velocity.z.max(0.0);
+        if linvel.z < 0.0 {
+            linvel.z += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
+            linvel.z = linvel.z.min(0.0);
+        } else if linvel.z > 0.0 {
+            linvel.z -= MAX_ACCELERATION_VEC.z * fixed_time.delta_secs();
+            linvel.z = linvel.z.max(0.0);
         }
     } else {
-        velocity.z += acceleration.z * fixed_time.delta_secs();
+        linvel.z += acceleration.z * fixed_time.delta_secs();
     }
 
-    velocity.0 = velocity.clamp(-MAX_VELOCITY_VEC, MAX_VELOCITY_VEC);
-
-    // Advance position
-    transform.translation += velocity.0 * fixed_time.delta_secs();
+    velocity.linvel = linvel.clamp(-MAX_VELOCITY_VEC, MAX_VELOCITY_VEC);
 
     // Reset the input accumulator, as we are currently consuming all input that happened since the last fixed timestep.
     input.0 = Vec3::ZERO;
-}
-
-fn interpolate_rendered_transform(
-    fixed_time: Res<Time<Fixed>>,
-    mut query: Query<(
-        &mut Transform,
-        &PhysicalTranslation,
-        &PreviousPhysicalTranslation,
-    )>,
-) {
-    for (mut transform, current_physical_translation, previous_physical_translation) in
-        query.iter_mut()
-    {
-        let previous = previous_physical_translation.0;
-        let current = current_physical_translation.0;
-        // The overstep fraction is a value between 0 and 1 that tells us how far we are between two fixed timesteps.
-        let alpha = fixed_time.overstep_fraction();
-
-        let rendered_translation = previous.lerp(current, alpha);
-        transform.translation = rendered_translation;
-    }
 }
 
 fn follow_player_with_camera(
@@ -367,8 +352,10 @@ fn animate_sprites(
 ) {
     let delta = fixed_time.delta();
     for (mut timer, velocity, mut sprite_3d) in query.iter_mut() {
+        let linvel = velocity.linvel;
         let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
-        if velocity.xz().length() == 0.0 {
+
+        if linvel.xz().length() == 0.0 {
             // Stopped moving, so stop animation in current direction
             timer.pause();
             timer.reset();
@@ -378,16 +365,16 @@ fn animate_sprites(
             // Then update the animation to the current direction.
             // To be faithful to Petscop, left and right overrides forward and backward.
             let current_frame = (atlas.index as f32 / 5.0).floor() as usize * 5;
-            if velocity.x < 0.0 {
+            if linvel.x < 0.0 {
                 // Left
                 atlas.index = current_frame + 2;
-            } else if velocity.x > 0.0 {
+            } else if linvel.x > 0.0 {
                 // Right
                 atlas.index = current_frame + 1;
-            } else if velocity.z < 0.0 {
+            } else if linvel.z < 0.0 {
                 // Forward
                 atlas.index = current_frame + 3;
-            } else if velocity.z > 0.0 {
+            } else if linvel.z > 0.0 {
                 // Backward
                 atlas.index = current_frame;
             }

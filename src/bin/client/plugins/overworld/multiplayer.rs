@@ -1,8 +1,9 @@
 mod netcode;
 
-use crate::plugins::overworld::{OverworldAssetCollection, Velocity, SPRITE_PIXELS_PER_METER};
+use crate::plugins::overworld::{OverworldAssetCollection, SPRITE_PIXELS_PER_METER};
 use bevy::prelude::*;
 use bevy::window::WindowCloseRequested;
+use bevy_rapier3d::prelude::Velocity;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use miniscop::networking::Packet;
 use netcode::connect_to_server;
@@ -209,6 +210,8 @@ pub fn send_current_position(
     position: Single<(&Velocity, &Transform, &Sprite3d)>,
 ) {
     let (velocity, transform, sprite_3d) = position.into_inner();
+    let velocity = velocity.linvel;
+
     if velocity.length() != 0.0 {
         let packet = Packet::PlayerMovement {
             id: None,

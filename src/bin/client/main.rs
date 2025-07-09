@@ -5,7 +5,7 @@ use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
 use bevy::prelude::*;
 use bevy::text::FontSmoothing;
 use bevy::window::{CursorOptions, PresentMode};
-use bevy_obj::ObjPlugin;
+use bevy_rapier3d::prelude::*;
 use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
 
@@ -35,8 +35,9 @@ fn main() {
                     ..default()
                 })
                 .set(ImagePlugin::default_nearest()),
-            ObjPlugin,
             Sprite3dPlugin,
+            RapierPhysicsPlugin::<NoUserData>::default(),
+            RapierDebugRenderPlugin::default(),
             FpsOverlayPlugin {
                 config: FpsOverlayConfig {
                     text_color: Color::BLACK,
