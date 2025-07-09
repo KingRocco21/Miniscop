@@ -3,7 +3,6 @@ mod netcode;
 use crate::plugins::overworld::{OverworldAssetCollection, SPRITE_PIXELS_PER_METER};
 use bevy::prelude::*;
 use bevy::window::WindowCloseRequested;
-use bevy_rapier3d::prelude::Velocity;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use miniscop::networking::Packet;
 use netcode::connect_to_server;

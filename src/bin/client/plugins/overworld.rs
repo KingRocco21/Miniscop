@@ -3,9 +3,7 @@ mod physics;
 
 use crate::AppState;
 use bevy::audio::{PlaybackMode, Volume};
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use bevy_rapier3d::prelude::*;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use multiplayer::MultiplayerState;
 
@@ -26,7 +24,7 @@ impl Plugin for OverworldPlugin {
             )
             .add_systems(
                 RunFixedMainLoop,
-                handle_input
+                physics::handle_input
                     .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop)
                     .run_if(in_state(OverworldState::InGame)),
             )
@@ -44,7 +42,7 @@ impl Plugin for OverworldPlugin {
                     )
                         .chain()
                         .run_if(in_state(MultiplayerState::Online)),
-                    advance_physics,
+                    physics::advance_physics,
                     multiplayer::send_current_position.run_if(in_state(MultiplayerState::Online)),
                     animate_sprites,
                 )
@@ -133,17 +131,6 @@ struct Player;
 #[derive(Component, Deref, DerefMut)]
 struct AnimationTimer(Timer);
 
-// Physics Components
-// https://github.com/bevyengine/bevy/blob/latest/examples/movement/physics_in_fixed_timestep.rs
-/// A vector representing the player's input, accumulated over all frames that ran
-/// since the last time the physics simulation was advanced.
-#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
-struct AccumulatedInput(Vec3);
-
-/// A vector representing the player's acceleration in the physics simulation.
-#[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
-struct Acceleration(Vec3);
-
 // Systems
 fn setup_overworld(
     mut commands: Commands,
@@ -188,60 +175,28 @@ fn finish_loading(
             StateScoped(AppState::Overworld),
             SceneRoot(assets.level.clone()),
             Transform::default(),
-            RigidBody::Fixed,
-            AsyncSceneCollider {
-                named_shapes: HashMap::from([(
-                    "Hitbox Mesh".to_string(),
-                    Some(ComputedColliderShape::ConvexDecomposition(
-                        VHACDParameters::default(),
-                    )),
-                )]),
-                ..default()
-            },
-            Ccd::enabled(),
         ));
         // Spawn player
-        commands
-            .spawn((
-                StateScoped(AppState::Overworld),
-                Sprite3dBuilder {
-                    image: assets.sprites.guardian_image.clone(),
-                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
-                    double_sided: false,
-                    unlit: true,
-                    ..default()
-                }
-                .bundle_with_atlas(
-                    &mut sprite3d_params,
-                    TextureAtlas {
-                        layout: assets.sprites.sprite_layout.clone(),
-                        index: 0,
-                    },
-                ),
-                Transform::from_translation(STARTING_TRANSLATION),
-                AccumulatedInput::default(),
-                ExternalForce::default(),
-                RigidBody::Dynamic,
-                Collider::cuboid(1.0, 1.0, 1.0),
-                Friction {
-                    coefficient: 0.0,
-                    combine_rule: CoefficientCombineRule::Min,
+        commands.spawn((
+            StateScoped(AppState::Overworld),
+            Sprite3dBuilder {
+                image: assets.sprites.guardian_image.clone(),
+                pixels_per_metre: SPRITE_PIXELS_PER_METER,
+                double_sided: false,
+                unlit: true,
+                ..default()
+            }
+            .bundle_with_atlas(
+                &mut sprite3d_params,
+                TextureAtlas {
+                    layout: assets.sprites.sprite_layout.clone(),
+                    index: 0,
                 },
-                Restitution {
-                    coefficient: 0.0,
-                    combine_rule: CoefficientCombineRule::Min,
-                },
-                Acceleration::default(),
-                Velocity::zero(),
-                Ccd::enabled(),
-                LockedAxes::ROTATION_LOCKED,
-                Dominance::group(1),
-                TransformInterpolation::default(),
-            ))
-            .insert((
-                Player,
-                AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
-            ));
+            ),
+            Transform::from_translation(STARTING_TRANSLATION),
+            Player,
+            AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+        ));
 
         // Spawn music
         commands.spawn((
@@ -267,69 +222,6 @@ fn finish_loading(
 
         next_state.set(OverworldState::InGame);
     }
-}
-
-/// Handle keyboard input and accumulate it in the `AccumulatedInput` component.
-fn handle_input(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(&mut AccumulatedInput, &mut Acceleration)>,
-) {
-    for (mut input, mut acceleration) in query.iter_mut() {
-        if keyboard_input.pressed(KeyCode::KeyW) {
-            input.z -= ACCELERATION;
-        }
-        if keyboard_input.pressed(KeyCode::KeyS) {
-            input.z += ACCELERATION;
-        }
-        if keyboard_input.pressed(KeyCode::KeyA) {
-            input.x -= ACCELERATION;
-        }
-        if keyboard_input.pressed(KeyCode::KeyD) {
-            input.x += ACCELERATION;
-        }
-
-        // If you want to normalize the input, do input.normalize_or_zero() instead of clamping.
-        acceleration.0 = input.clamp(-MAX_ACCELERATION_VEC, MAX_ACCELERATION_VEC);
-    }
-}
-
-/// Advance the physics simulation by one fixed timestep. This may run zero or multiple times per frame.
-fn advance_physics(
-    fixed_time: Res<Time<Fixed>>,
-    player: Single<(&mut AccumulatedInput, &Acceleration, &mut Velocity)>,
-) {
-    let (mut input, acceleration, mut velocity) = player.into_inner();
-    let mut linvel = velocity.linvel;
-
-    // Advance velocity
-    if acceleration.x == 0.0 {
-        if linvel.x < 0.0 {
-            linvel.x += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
-            linvel.x = linvel.x.min(0.0);
-        } else if linvel.x > 0.0 {
-            linvel.x -= MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
-            linvel.x = linvel.x.max(0.0);
-        }
-    } else {
-        linvel.x += acceleration.x * fixed_time.delta_secs();
-    }
-
-    if acceleration.z == 0.0 {
-        if linvel.z < 0.0 {
-            linvel.z += MAX_ACCELERATION_VEC.x * fixed_time.delta_secs();
-            linvel.z = linvel.z.min(0.0);
-        } else if linvel.z > 0.0 {
-            linvel.z -= MAX_ACCELERATION_VEC.z * fixed_time.delta_secs();
-            linvel.z = linvel.z.max(0.0);
-        }
-    } else {
-        linvel.z += acceleration.z * fixed_time.delta_secs();
-    }
-
-    velocity.linvel = linvel.clamp(-MAX_VELOCITY_VEC, MAX_VELOCITY_VEC);
-
-    // Reset the input accumulator, as we are currently consuming all input that happened since the last fixed timestep.
-    input.0 = Vec3::ZERO;
 }
 
 fn follow_player_with_camera(

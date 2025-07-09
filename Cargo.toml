@@ -16,7 +16,6 @@ anyhow = "1.0.98"
 # Client
 bevy = { version = "0.16.1", features = ["bevy_dev_tools"] }
 bevy_sprite3d = "5.0.0"
-bevy_rapier3d = { version = "0.30.0", features = ["debug-render-3d"] }
 # Server
 clap = { version = "4.5.40", features = ["derive"] }
 rustls-pki-types = "1.12.0"
