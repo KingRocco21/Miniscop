@@ -1,75 +1,87 @@
+mod animation;
 mod multiplayer;
 mod physics;
 
 use crate::AppState;
+use avian3d::prelude::{
+    Collider, ColliderConstructor, ColliderConstructorHierarchy, Dominance, LockedAxes,
+    PhysicsDebugPlugin, RigidBody,
+};
+use avian3d::PhysicsPlugins;
 use bevy::audio::{PlaybackMode, Volume};
-use bevy::prelude::*;
-use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
+use bevy::prelude::{
+    default, in_state, App, AppExtStates, AssetServer, Assets, AudioPlayer, AudioSource,
+    Camera, Camera3d, ClearColorConfig, Color, Commands, Component, Condition,
+    FixedLast, FixedUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs, NextState,
+    OnEnter, PlaybackSettings, Plugin, Res, ResMut, Resource, Scene, SceneRoot, Single, StateScoped,
+    StateSet, SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode, Transform, UVec2, Update,
+    Vec3, With, Without,
+};
+use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
+use bevy_tnua::prelude::{TnuaController, TnuaControllerPlugin};
+use bevy_tnua::TnuaUserControlsSystemSet;
+use bevy_tnua_avian3d::{TnuaAvian3dPlugin, TnuaAvian3dSensorShape};
 use multiplayer::MultiplayerState;
 
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
     fn build(&self, app: &mut App) {
-        app.add_sub_state::<OverworldState>()
-            .init_state::<MultiplayerState>()
-            .add_event::<multiplayer::OtherPlayerMoved>()
-            .add_event::<multiplayer::OtherPlayerDisconnected>()
-            .add_systems(
-                OnEnter(AppState::Overworld),
-                (setup_overworld, multiplayer::setup_client_runtime),
-            )
-            .add_systems(
-                Update,
-                finish_loading.run_if(in_state(OverworldState::LoadingScreen)),
-            )
-            .add_systems(
-                RunFixedMainLoop,
-                physics::handle_input
-                    .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop)
-                    .run_if(in_state(OverworldState::InGame)),
-            )
-            .add_systems(
-                FixedUpdate,
+        app.add_plugins((
+            PhysicsPlugins::default(),
+            PhysicsDebugPlugin::default(),
+            TnuaControllerPlugin::new(FixedUpdate),
+            TnuaAvian3dPlugin::new(FixedUpdate),
+        ))
+        .add_sub_state::<OverworldState>()
+        .init_state::<MultiplayerState>()
+        .add_event::<multiplayer::OtherPlayerMoved>()
+        .add_event::<multiplayer::OtherPlayerDisconnected>()
+        .add_systems(
+            OnEnter(AppState::Overworld),
+            (setup_overworld, multiplayer::setup_client_runtime),
+        )
+        .add_systems(
+            Update,
+            finish_loading.run_if(in_state(OverworldState::LoadingScreen)),
+        )
+        .add_systems(
+            FixedUpdate,
+            (
+                multiplayer::read_packets.run_if(
+                    in_state(MultiplayerState::Connecting).or(in_state(MultiplayerState::Online)),
+                ),
                 (
-                    // These must be run in this order because each one is dependent on the next.
-                    multiplayer::read_packets.run_if(
-                        in_state(MultiplayerState::Connecting)
-                            .or(in_state(MultiplayerState::Online)),
-                    ),
-                    (
-                        multiplayer::on_other_player_moved,
-                        multiplayer::on_other_player_disconnected,
-                    )
-                        .chain()
-                        .run_if(in_state(MultiplayerState::Online)),
-                    physics::advance_physics,
-                    multiplayer::send_current_position.run_if(in_state(MultiplayerState::Online)),
-                    animate_sprites,
+                    multiplayer::on_other_player_moved,
+                    multiplayer::on_other_player_disconnected,
                 )
                     .chain()
-                    .run_if(in_state(OverworldState::InGame)),
-            )
-            .add_systems(
-                Update,
-                follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
-            )
-            .add_systems(
-                Update,
-                multiplayer::stop_client_runtime_on_window_close
                     .run_if(in_state(MultiplayerState::Online)),
-            );
+                physics::apply_controls.in_set(TnuaUserControlsSystemSet),
+                animation::animate_sprites,
+            )
+                .chain()
+                .run_if(in_state(OverworldState::InGame)),
+        )
+        .add_systems(
+            FixedLast,
+            multiplayer::send_current_position.run_if(in_state(MultiplayerState::Online)),
+        )
+        .add_systems(
+            Update,
+            follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
+        )
+        .add_systems(
+            Update,
+            multiplayer::stop_client_runtime_on_window_close
+                .run_if(in_state(MultiplayerState::Online)),
+        );
     }
 }
 
 // Constants
 /// Note: Based on current guardian sprite
 const SPRITE_PIXELS_PER_METER: f32 = 33.0;
-const STARTING_TRANSLATION: Vec3 = Vec3::new(0.0, 64.0 / SPRITE_PIXELS_PER_METER * 0.5, 0.0);
-/// Meters per second squared
-const ACCELERATION: f32 = 50.0;
-const MAX_ACCELERATION_VEC: Vec3 = Vec3::splat(ACCELERATION);
-const VELOCITY: f32 = 5.0;
-const MAX_VELOCITY_VEC: Vec3 = Vec3::splat(VELOCITY);
+const STARTING_TRANSLATION: Vec3 = Vec3::new(0.0, 0.5, 0.0);
 
 // Sub-States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
@@ -128,8 +140,6 @@ impl OverworldAssetCollection {
 // Components
 #[derive(Component)]
 struct Player;
-#[derive(Component, Deref, DerefMut)]
-struct AnimationTimer(Timer);
 
 // Systems
 fn setup_overworld(
@@ -175,10 +185,16 @@ fn finish_loading(
             StateScoped(AppState::Overworld),
             SceneRoot(assets.level.clone()),
             Transform::default(),
+            RigidBody::Static,
+            ColliderConstructorHierarchy::new(None).with_constructor_for_name(
+                "Hitbox Mesh",
+                ColliderConstructor::ConvexDecompositionFromMesh,
+            ),
         ));
         // Spawn player
         commands.spawn((
             StateScoped(AppState::Overworld),
+            Player,
             Sprite3dBuilder {
                 image: assets.sprites.guardian_image.clone(),
                 pixels_per_metre: SPRITE_PIXELS_PER_METER,
@@ -194,8 +210,14 @@ fn finish_loading(
                 },
             ),
             Transform::from_translation(STARTING_TRANSLATION),
-            Player,
-            AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+            animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+            animation::AnimationDirection(Vec3::ZERO),
+            RigidBody::Dynamic,
+            Collider::cuboid(1.0, 1.0, 1.0),
+            TnuaController::default(),
+            TnuaAvian3dSensorShape(Collider::cuboid(1.0, 0.0, 1.0)),
+            LockedAxes::ROTATION_LOCKED,
+            Dominance(1),
         ));
 
         // Spawn music
@@ -232,84 +254,4 @@ fn follow_player_with_camera(
         player_transform.translation.x - 2.0,
         player_transform.translation.x + 2.0,
     );
-}
-
-// Mod (%) by the column count to find which column the atlas is in.
-// Floor divide by the row count to find which row the atlas is in. Multiply by row count to return to that row.
-fn animate_sprites(
-    mut commands: Commands,
-    fixed_time: Res<Time>,
-    mut query: Query<(&mut AnimationTimer, &Velocity, &mut Sprite3d)>,
-    assets: Res<OverworldAssetCollection>,
-) {
-    let delta = fixed_time.delta();
-    for (mut timer, velocity, mut sprite_3d) in query.iter_mut() {
-        let linvel = velocity.linvel;
-        let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
-
-        if linvel.xz().length() == 0.0 {
-            // Stopped moving, so stop animation in current direction
-            timer.pause();
-            timer.reset();
-            atlas.index = atlas.index % 5;
-        } else {
-            // Get the current animation frame without direction taken into account.
-            // Then update the animation to the current direction.
-            // To be faithful to Petscop, left and right overrides forward and backward.
-            let current_frame = (atlas.index as f32 / 5.0).floor() as usize * 5;
-            if linvel.x < 0.0 {
-                // Left
-                atlas.index = current_frame + 2;
-            } else if linvel.x > 0.0 {
-                // Right
-                atlas.index = current_frame + 1;
-            } else if linvel.z < 0.0 {
-                // Forward
-                atlas.index = current_frame + 3;
-            } else if linvel.z > 0.0 {
-                // Backward
-                atlas.index = current_frame;
-            }
-
-            // If the player just started moving, immediately switch to the first frame, but don't play a sound.
-            if timer.paused() {
-                timer.unpause();
-                // Increment and wrap
-                atlas.index += 5;
-                if atlas.index > 23 {
-                    atlas.index = atlas.index % 5 + 5;
-                }
-            }
-
-            timer.tick(delta);
-            if timer.just_finished() {
-                // Increment and wrap
-                atlas.index += 5;
-                if atlas.index > 23 {
-                    atlas.index = atlas.index % 5 + 5;
-                }
-                // Play walking sound
-                let current_frame = (atlas.index as f32 / 5.0).floor() as usize;
-                if current_frame == 2 {
-                    commands.spawn((
-                        StateScoped(AppState::Overworld),
-                        AudioPlayer::new(assets.sound_effects.walking_1.clone()),
-                        PlaybackSettings {
-                            mode: PlaybackMode::Despawn,
-                            ..default()
-                        },
-                    ));
-                } else if current_frame == 4 {
-                    commands.spawn((
-                        StateScoped(AppState::Overworld),
-                        AudioPlayer::new(assets.sound_effects.walking_2.clone()),
-                        PlaybackSettings {
-                            mode: PlaybackMode::Despawn,
-                            ..default()
-                        },
-                    ));
-                }
-            }
-        }
-    }
 }

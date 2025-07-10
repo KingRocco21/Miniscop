@@ -2,9 +2,13 @@ use crate::plugins::garalina::GaralinaPlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
 use crate::plugins::overworld::OverworldPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
-use bevy::prelude::*;
+use bevy::prelude::{
+    default, App, AppExtStates, AssetServer, Color, Font, ImagePlugin, PluginGroup, Res, ResMut,
+    Startup, States, TextFont, Window, WindowPlugin,
+};
 use bevy::text::FontSmoothing;
 use bevy::window::{CursorOptions, PresentMode};
+use bevy::DefaultPlugins;
 use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
 

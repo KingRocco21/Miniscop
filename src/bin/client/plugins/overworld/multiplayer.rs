@@ -1,9 +1,13 @@
 mod netcode;
 
 use crate::plugins::overworld::{OverworldAssetCollection, SPRITE_PIXELS_PER_METER};
-use bevy::prelude::*;
+use bevy::prelude::{
+    default, Commands, Component, Entity, Event, EventReader, EventWriter, NextState, Query, Res,
+    ResMut, Resource, Single, StateScoped, States, TextureAtlas, Transform, Vec3,
+};
 use bevy::window::WindowCloseRequested;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
+use bevy_tnua::prelude::{TnuaBuiltinWalk, TnuaController};
 use miniscop::networking::Packet;
 use netcode::connect_to_server;
 use quinn::{Connection, Endpoint};
@@ -12,6 +16,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
+use tracing::{error, info};
 
 // States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
@@ -203,15 +208,19 @@ pub fn on_other_player_disconnected(
     }
 }
 
+/// This system should be scheduled to run after the physics simulation.
 pub fn send_current_position(
     connection: Res<ServerConnection>,
     mut next_state: ResMut<NextState<MultiplayerState>>,
-    position: Single<(&Velocity, &Transform, &Sprite3d)>,
+    position: Single<(&TnuaController, &Transform, &Sprite3d)>,
 ) {
-    let (velocity, transform, sprite_3d) = position.into_inner();
-    let velocity = velocity.linvel;
+    let (controller, transform, sprite_3d) = position.into_inner();
+    let (_, walk_state) = controller
+        .concrete_basis::<TnuaBuiltinWalk>()
+        .expect("The player should have a walk state.");
+    let velocity = walk_state.running_velocity;
 
-    if velocity.length() != 0.0 {
+    if velocity.length() > 0.001 {
         let packet = Packet::PlayerMovement {
             id: None,
             x: transform.translation.x,
