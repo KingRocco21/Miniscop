@@ -31,7 +31,7 @@ fn main() {
                         // ),
                         title: "Miniscop: Investigate Together!".to_string(),
                         name: Some("Miniscop".to_string()),
-                        prevent_default_event_handling: false, // Setting it to false means you should not bind inputs to F5, F12, Ctrl+R, and Tab
+                        prevent_default_event_handling: true,
                         fit_canvas_to_parent: true,
                         ..default()
                     }),
