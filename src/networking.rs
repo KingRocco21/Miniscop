@@ -1,9 +1,6 @@
-use bincode::config::Configuration;
-use bincode::{config, decode_from_slice, Decode};
-use bincode::{encode_to_vec, Encode};
+use bitcode::{decode, encode, Decode, Encode};
 use quinn::{RecvStream, SendStream};
 
-pub const PACKET_CONFIG: Configuration = config::standard();
 #[derive(Encode, Decode, Debug, Copy, Clone, PartialEq)]
 pub enum Packet {
     /// Client will be kicked if it sends this.
@@ -21,19 +18,19 @@ pub enum Packet {
     },
 }
 
-/// Note: This future finishes when the packet sent, not when it is received by the server.
-#[tracing::instrument]
+/// Note: This future finishes when the packet sent, not when it is received by the other endpoint.
+#[tracing::instrument(skip(send))]
 pub async fn send_packet(mut send: SendStream, packet: Packet) -> anyhow::Result<()> {
-    let packet = encode_to_vec(packet, PACKET_CONFIG)?;
+    let packet = encode(&packet);
     send.write_all(packet.as_slice()).await?;
     send.finish()?;
 
     Ok(())
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(recv))]
 pub async fn receive_packet(mut recv: RecvStream) -> anyhow::Result<Packet> {
     let packet = recv.read_to_end(64).await?;
-    let (packet, _): (Packet, usize) = decode_from_slice(packet.as_slice(), PACKET_CONFIG)?;
+    let packet = decode::<Packet>(packet.as_slice())?;
     Ok(packet)
 }
