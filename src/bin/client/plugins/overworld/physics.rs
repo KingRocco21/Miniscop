@@ -11,7 +11,6 @@ pub const FLOAT_HEIGHT: Float = 0.95;
 const CLING_DISTANCE: Float = 0.1;
 const SPRING_DAMPENING: Float = 1.0;
 const ACCELERATION: Float = 25.0;
-const AIR_ACCELERATION: Float = ACCELERATION;
 const COYOTE_TIME: Float = 0.0;
 
 // Systems
@@ -29,7 +28,7 @@ pub fn apply_controls(
         cling_distance: CLING_DISTANCE,
         spring_dampening: SPRING_DAMPENING,
         acceleration: ACCELERATION,
-        air_acceleration: AIR_ACCELERATION,
+        air_acceleration: ACCELERATION,
         coyote_time: COYOTE_TIME,
         ..default()
     });

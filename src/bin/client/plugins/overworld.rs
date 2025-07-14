@@ -5,19 +5,19 @@ mod physics;
 
 use crate::AppState;
 use avian3d::prelude::{
-    Collider, ColliderConstructor, ColliderConstructorHierarchy, Dominance, LockedAxes,
-    PhysicsDebugPlugin, RigidBody,
+    Collider, ColliderConstructor, Dominance, LockedAxes, PhysicsDebugPlugin, RigidBody,
 };
 use avian3d::PhysicsPlugins;
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::{
-    default, in_state, App, AppExtStates, AssetServer, Assets, AudioPlayer, AudioSource,
-    Camera, Camera3d, ClearColorConfig, Color, Commands, Component, Condition, FixedFirst,
-    FixedLast, FixedPreUpdate, FixedUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs,
-    NextState, OnEnter, PlaybackSettings, Plugin, Res, ResMut, Resource, Scene, SceneRoot,
+    default, in_state, App, AppExtStates, AssetServer, Assets, AudioPlayer, AudioSource, Camera,
+    Camera3d, Children, ClearColorConfig, Color, Commands, Component, Condition, FixedFirst,
+    FixedLast, FixedPreUpdate, FixedUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs, Name,
+    NextState, OnEnter, PlaybackSettings, Plugin, Query, Res, ResMut, Resource, Scene, SceneRoot,
     Single, StateScoped, StateSet, SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode,
-    Transform, UVec2, Update, Vec3, With, Without,
+    Transform, Trigger, UVec2, Update, Vec3, With, Without,
 };
+use bevy::scene::SceneInstanceReady;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
 use bevy_tnua::prelude::{TnuaController, TnuaControllerPlugin};
 use bevy_tnua::TnuaUserControlsSystemSet;
@@ -191,17 +191,21 @@ fn finish_loading(
     mut next_state: ResMut<NextState<OverworldState>>,
 ) {
     if assets.all_assets_are_loaded(&asset_server) {
-        // Spawn level
+        // Spawn floor
         commands.spawn((
             StateScoped(AppState::Overworld),
-            SceneRoot(assets.level.clone()),
-            Transform::default(),
+            Transform::from_xyz(0.0, -0.5, 0.0),
             RigidBody::Static,
-            ColliderConstructorHierarchy::new(None).with_constructor_for_name(
-                "Hitbox Mesh",
-                ColliderConstructor::ConvexDecompositionFromMesh,
-            ),
+            Collider::cuboid(1000.0, 1.0, 1000.0),
         ));
+        // Spawn level
+        commands
+            .spawn((
+                StateScoped(AppState::Overworld),
+                SceneRoot(assets.level.clone()),
+                Transform::default(),
+            ))
+            .observe(on_level_spawn);
 
         // Spawn player
         commands.spawn((
@@ -232,7 +236,7 @@ fn finish_loading(
             Dominance(1),
             // Character Controller
             TnuaController::default(),
-            TnuaAvian3dSensorShape(Collider::cuboid(1.0, 0.0, 1.0)),
+            TnuaAvian3dSensorShape(Collider::cuboid(0.9, 0.0, 0.9)),
             // Input
             input::PlayerAction::default_input_map(),
         ));
@@ -260,6 +264,25 @@ fn finish_loading(
         ));
 
         next_state.set(OverworldState::InGame);
+    }
+}
+
+/// On level spawn, add colliders for any blender meshes named "Hitbox Mesh".
+fn on_level_spawn(
+    trigger: Trigger<SceneInstanceReady>,
+    mut commands: Commands,
+    children: Query<&Children>,
+    names: Query<&Name>,
+) {
+    for child in children.iter_descendants(trigger.target()) {
+        if let Ok(name) = names.get(child) {
+            if name.contains("Hitbox Mesh") {
+                commands.entity(child).insert((
+                    RigidBody::Static,
+                    ColliderConstructor::ConvexDecompositionFromMesh,
+                ));
+            }
+        }
     }
 }
 
