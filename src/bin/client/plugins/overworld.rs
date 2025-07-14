@@ -1,4 +1,5 @@
 mod animation;
+mod input;
 mod multiplayer;
 mod physics;
 
@@ -11,16 +12,17 @@ use avian3d::PhysicsPlugins;
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::{
     default, in_state, App, AppExtStates, AssetServer, Assets, AudioPlayer, AudioSource,
-    Camera, Camera3d, ClearColorConfig, Color, Commands, Component, Condition,
-    FixedLast, FixedUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs, NextState,
-    OnEnter, PlaybackSettings, Plugin, Res, ResMut, Resource, Scene, SceneRoot, Single, StateScoped,
-    StateSet, SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode, Transform, UVec2, Update,
-    Vec3, With, Without,
+    Camera, Camera3d, ClearColorConfig, Color, Commands, Component, Condition, FixedFirst,
+    FixedLast, FixedPreUpdate, FixedUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs,
+    NextState, OnEnter, PlaybackSettings, Plugin, Res, ResMut, Resource, Scene, SceneRoot,
+    Single, StateScoped, StateSet, SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode,
+    Transform, UVec2, Update, Vec3, With, Without,
 };
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
 use bevy_tnua::prelude::{TnuaController, TnuaControllerPlugin};
 use bevy_tnua::TnuaUserControlsSystemSet;
 use bevy_tnua_avian3d::{TnuaAvian3dPlugin, TnuaAvian3dSensorShape};
+use leafwing_input_manager::prelude::InputManagerPlugin;
 use multiplayer::MultiplayerState;
 
 pub struct OverworldPlugin;
@@ -29,8 +31,9 @@ impl Plugin for OverworldPlugin {
         app.add_plugins((
             PhysicsPlugins::default(),
             PhysicsDebugPlugin::default(),
-            TnuaControllerPlugin::new(FixedUpdate),
-            TnuaAvian3dPlugin::new(FixedUpdate),
+            TnuaControllerPlugin::new(FixedPreUpdate),
+            TnuaAvian3dPlugin::new(FixedPreUpdate),
+            InputManagerPlugin::<input::PlayerAction>::default(),
         ))
         .add_sub_state::<OverworldState>()
         .init_state::<MultiplayerState>()
@@ -45,7 +48,7 @@ impl Plugin for OverworldPlugin {
             finish_loading.run_if(in_state(OverworldState::LoadingScreen)),
         )
         .add_systems(
-            FixedUpdate,
+            FixedFirst,
             (
                 multiplayer::read_packets.run_if(
                     in_state(MultiplayerState::Connecting).or(in_state(MultiplayerState::Online)),
@@ -56,11 +59,19 @@ impl Plugin for OverworldPlugin {
                 )
                     .chain()
                     .run_if(in_state(MultiplayerState::Online)),
-                physics::apply_controls.in_set(TnuaUserControlsSystemSet),
-                animation::animate_sprites,
             )
                 .chain()
                 .run_if(in_state(OverworldState::InGame)),
+        )
+        .add_systems(
+            FixedPreUpdate,
+            physics::apply_controls
+                .in_set(TnuaUserControlsSystemSet)
+                .run_if(in_state(OverworldState::InGame)),
+        )
+        .add_systems(
+            FixedUpdate,
+            animation::animate_sprites.run_if(in_state(OverworldState::InGame)),
         )
         .add_systems(
             FixedLast,
@@ -81,7 +92,7 @@ impl Plugin for OverworldPlugin {
 // Constants
 /// Note: Based on current guardian sprite
 const SPRITE_PIXELS_PER_METER: f32 = 33.0;
-const STARTING_TRANSLATION: Vec3 = Vec3::new(0.0, 0.5, 0.0);
+const STARTING_TRANSLATION: Vec3 = Vec3::new(0.0, physics::FLOAT_HEIGHT, 0.0);
 
 // Sub-States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
@@ -191,10 +202,13 @@ fn finish_loading(
                 ColliderConstructor::ConvexDecompositionFromMesh,
             ),
         ));
+
         // Spawn player
         commands.spawn((
             StateScoped(AppState::Overworld),
             Player,
+            Transform::from_translation(STARTING_TRANSLATION),
+            // Sprite
             Sprite3dBuilder {
                 image: assets.sprites.guardian_image.clone(),
                 pixels_per_metre: SPRITE_PIXELS_PER_METER,
@@ -209,15 +223,18 @@ fn finish_loading(
                     index: 0,
                 },
             ),
-            Transform::from_translation(STARTING_TRANSLATION),
+            // Animation
             animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
-            animation::AnimationDirection(Vec3::ZERO),
+            // Physics
             RigidBody::Dynamic,
             Collider::cuboid(1.0, 1.0, 1.0),
-            TnuaController::default(),
-            TnuaAvian3dSensorShape(Collider::cuboid(1.0, 0.0, 1.0)),
             LockedAxes::ROTATION_LOCKED,
             Dominance(1),
+            // Character Controller
+            TnuaController::default(),
+            TnuaAvian3dSensorShape(Collider::cuboid(1.0, 0.0, 1.0)),
+            // Input
+            input::PlayerAction::default_input_map(),
         ));
 
         // Spawn music

@@ -1,4 +1,4 @@
-use bitcode::{decode, encode, Decode, Encode};
+use bitcode::{decode, encode, Buffer, Decode, Encode};
 use quinn::{RecvStream, SendStream};
 
 #[derive(Encode, Decode, Debug, Copy, Clone, PartialEq)]
@@ -18,19 +18,37 @@ pub enum Packet {
     },
 }
 
-/// Note: This future finishes when the packet sent, not when it is received by the other endpoint.
-#[tracing::instrument(skip(send))]
-pub async fn send_packet(mut send: SendStream, packet: Packet) -> anyhow::Result<()> {
-    let packet = encode(&packet);
-    send.write_all(packet.as_slice()).await?;
+/// Note: This future finishes when the packet is sent, not when it is received by the other endpoint.
+#[tracing::instrument(skip(send, buffer))]
+pub async fn send_packet(
+    mut send: SendStream,
+    packet: Packet,
+    buffer: Option<&mut Buffer>,
+) -> anyhow::Result<()> {
+    match buffer {
+        Some(buffer) => {
+            let packet = buffer.encode(&packet);
+            send.write_all(packet).await?;
+        }
+        None => {
+            let packet = encode(&packet);
+            send.write_all(packet.as_slice()).await?;
+        }
+    };
     send.finish()?;
 
     Ok(())
 }
 
-#[tracing::instrument(skip(recv))]
-pub async fn receive_packet(mut recv: RecvStream) -> anyhow::Result<Packet> {
+#[tracing::instrument(skip(recv, buffer))]
+pub async fn receive_packet(
+    mut recv: RecvStream,
+    buffer: Option<&mut Buffer>,
+) -> anyhow::Result<Packet> {
     let packet = recv.read_to_end(64).await?;
-    let packet = decode::<Packet>(packet.as_slice())?;
+    let packet: Packet = match buffer {
+        Some(buffer) => buffer.decode(packet.as_slice())?,
+        None => decode(packet.as_slice())?,
+    };
     Ok(packet)
 }

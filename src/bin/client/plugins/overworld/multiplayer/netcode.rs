@@ -57,13 +57,13 @@ pub(crate) async fn await_bevy_packets(
     connection_handle: Connection,
     mut from_bevy: Receiver<Packet>,
 ) -> anyhow::Result<()> {
-    // This loop ends when the channel is closed.
+    // This loop condition returns false when bevy closes the channel, which shouldn't happen normally.
     while let Some(packet) = from_bevy.recv().await {
         // Could not find a way to move the open_uni() future into send_packet(), so we await here.
         // Since streams are "instantaneous to open", this shouldn't fill up the channel.
         let send = connection_handle.open_uni().await?;
         tokio::spawn(async move {
-            if let Err(e) = send_packet(send, packet).await {
+            if let Err(e) = send_packet(send, packet, None).await {
                 error!("Failed to send packet to server: {e:#?}");
             }
         });
@@ -73,7 +73,7 @@ pub(crate) async fn await_bevy_packets(
         }
     }
 
-    Ok(())
+    Err(anyhow::anyhow!("Bevy manually closed the channel."))
 }
 
 /// Awaits packets from the server to send to Bevy.
@@ -87,7 +87,7 @@ pub(crate) async fn await_server_packets(
         let to_bevy_clone = to_bevy.clone();
 
         tokio::spawn(async move {
-            match receive_packet(recv).await {
+            match receive_packet(recv, None).await {
                 Ok(packet) => {
                     if let Err(TrySendError::Full(_)) = to_bevy_clone.try_send(packet) {
                         error!(

@@ -1,4 +1,5 @@
 use anyhow;
+use bitcode::Buffer;
 use clap::Parser;
 use miniscop::networking::{receive_packet, send_packet, Packet};
 use quinn::{Connection, Endpoint, ServerConfig};
@@ -113,13 +114,14 @@ async fn handle_connection(
     let client_id = connection.stable_id() as u64;
     let send = connection.open_uni().await?;
     let packet = Packet::ClientConnect;
-    send_packet(send, packet).await?;
+    send_packet(send, packet, None).await?;
 
     // Start awaiting packets.
     // This loop ends when an error occurs.
+    let mut recv_buffer = Buffer::new();
     loop {
         let recv = connection.accept_uni().await?;
-        let packet = receive_packet(recv).await?;
+        let packet = receive_packet(recv, Some(&mut recv_buffer)).await?;
         match packet {
             Packet::ClientConnect => {
                 return Err(anyhow::anyhow!(
@@ -179,7 +181,7 @@ async fn receive_broadcasts(
                     } else {
                         let send = connection.open_uni().await?;
                         tokio::spawn(async move {
-                            if let Err(e) = send_packet(send, packet).await {
+                            if let Err(e) = send_packet(send, packet, None).await {
                                 error!("Error sending packet: {e:#?}");
                             }
                         });
@@ -189,7 +191,7 @@ async fn receive_broadcasts(
                     if id.is_some_and(|id| id != client_id) {
                         let send = connection.open_uni().await?;
                         tokio::spawn(async move {
-                            if let Err(e) = send_packet(send, packet).await {
+                            if let Err(e) = send_packet(send, packet, None).await {
                                 error!("Error sending packet: {e:#?}");
                             }
                         });
