@@ -1,7 +1,6 @@
 mod animation;
 mod input;
 mod multiplayer;
-mod physics;
 
 use crate::AppState;
 use avian3d::prelude::{
@@ -65,8 +64,11 @@ impl Plugin for OverworldPlugin {
         )
         .add_systems(
             FixedPreUpdate,
-            physics::apply_controls
-                .in_set(TnuaUserControlsSystemSet)
+            (
+                input::respawn,
+                input::walk.in_set(TnuaUserControlsSystemSet),
+            )
+                .chain()
                 .run_if(in_state(OverworldState::InGame)),
         )
         .add_systems(
@@ -92,7 +94,8 @@ impl Plugin for OverworldPlugin {
 // Constants
 /// Note: Based on current guardian sprite
 const SPRITE_PIXELS_PER_METER: f32 = 33.0;
-const STARTING_TRANSLATION: Vec3 = Vec3::new(0.0, physics::FLOAT_HEIGHT, 0.0);
+const STARTING_PLAYER_TRANSLATION: Vec3 = Vec3::new(-2.0, input::FLOAT_HEIGHT, 0.0);
+const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 4.0, 8.0);
 
 // Sub-States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, SubStates)]
@@ -211,7 +214,7 @@ fn finish_loading(
         commands.spawn((
             StateScoped(AppState::Overworld),
             Player,
-            Transform::from_translation(STARTING_TRANSLATION),
+            Transform::from_translation(STARTING_PLAYER_TRANSLATION),
             // Sprite
             Sprite3dBuilder {
                 image: assets.sprites.guardian_image.clone(),
@@ -231,12 +234,12 @@ fn finish_loading(
             animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
             // Physics
             RigidBody::Dynamic,
-            Collider::cuboid(1.0, 1.0, 1.0),
+            Collider::cuboid(1.0, 1.0, 0.2),
             LockedAxes::ROTATION_LOCKED,
             Dominance(1),
             // Character Controller
             TnuaController::default(),
-            TnuaAvian3dSensorShape(Collider::cuboid(0.9, 0.0, 0.9)),
+            TnuaAvian3dSensorShape(Collider::cuboid(0.9, 0.0, 0.1)),
             // Input
             input::PlayerAction::default_input_map(),
         ));
@@ -260,7 +263,8 @@ fn finish_loading(
                 clear_color: ClearColorConfig::Custom(Color::WHITE),
                 ..default()
             },
-            Transform::from_xyz(0.0, 5.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+            Transform::from_translation(STARTING_CAMERA_TRANSLATION)
+                .looking_at(Vec3::new(STARTING_CAMERA_TRANSLATION.x, 0.0, 0.0), Vec3::Y),
         ));
 
         next_state.set(OverworldState::InGame);

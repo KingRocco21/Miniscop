@@ -7,7 +7,7 @@ use bevy::prelude::{
     Startup, States, TextFont, Window, WindowPlugin,
 };
 use bevy::text::FontSmoothing;
-use bevy::window::{CursorOptions, PresentMode};
+use bevy::window::{CursorOptions, PresentMode, WindowResolution};
 use bevy::DefaultPlugins;
 use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
@@ -29,6 +29,8 @@ fn main() {
                         //     MonitorSelection::Primary,
                         //     VideoModeSelection::Current,
                         // ),
+                        resolution: WindowResolution::new(720.0, 540.0),
+                        resizable: false,
                         title: "Miniscop: Investigate Together!".to_string(),
                         name: Some("Miniscop".to_string()),
                         prevent_default_event_handling: true,
