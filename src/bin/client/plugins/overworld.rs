@@ -9,12 +9,13 @@ use avian3d::prelude::{
 use avian3d::PhysicsPlugins;
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::{
-    default, in_state, App, AppExtStates, AssetServer, Assets, AudioPlayer, AudioSource, Camera,
-    Camera3d, Children, ClearColorConfig, Color, Commands, Component, Condition, FixedFirst,
-    FixedLast, FixedPreUpdate, FixedUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs, Name,
-    NextState, OnEnter, PlaybackSettings, Plugin, Query, Res, ResMut, Resource, Scene, SceneRoot,
-    Single, StateScoped, StateSet, SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode,
-    Transform, Trigger, UVec2, Update, Vec3, With, Without,
+    default, in_state, AmbientLight, App, AppExtStates, AssetServer, Assets, AudioPlayer,
+    AudioSource, Camera, Camera3d, Children, ClearColorConfig, Color, Commands, Component,
+    Condition, DirectionalLight, FixedFirst, FixedLast, FixedPreUpdate, FixedUpdate, GltfAssetLabel,
+    Handle, Image, IntoScheduleConfigs, Name, NextState, OnEnter, PlaybackSettings, Plugin, Quat,
+    Query, Res, ResMut, Resource, Scene, SceneRoot, Single, StateScoped, StateSet,
+    SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode, Transform, Trigger, UVec2, Update, Vec3,
+    With, Without,
 };
 use bevy::scene::SceneInstanceReady;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
@@ -23,6 +24,7 @@ use bevy_tnua::TnuaUserControlsSystemSet;
 use bevy_tnua_avian3d::{TnuaAvian3dPlugin, TnuaAvian3dSensorShape};
 use leafwing_input_manager::prelude::InputManagerPlugin;
 use multiplayer::MultiplayerState;
+use std::f32::consts::PI;
 
 pub struct OverworldPlugin;
 impl Plugin for OverworldPlugin {
@@ -265,6 +267,16 @@ fn finish_loading(
             },
             Transform::from_translation(STARTING_CAMERA_TRANSLATION)
                 .looking_at(Vec3::new(STARTING_CAMERA_TRANSLATION.x, 0.0, 0.0), Vec3::Y),
+            AmbientLight {
+                brightness: 1000.0,
+                ..default()
+            },
+        ));
+
+        commands.spawn((
+            StateScoped(AppState::Overworld),
+            DirectionalLight::default(),
+            Transform::from_rotation(Quat::from_rotation_y(PI / 4.0)),
         ));
 
         next_state.set(OverworldState::InGame);
