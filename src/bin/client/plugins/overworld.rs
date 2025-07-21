@@ -4,18 +4,18 @@ mod multiplayer;
 
 use crate::AppState;
 use avian3d::prelude::{
-    Collider, ColliderConstructor, Dominance, LockedAxes, PhysicsDebugPlugin, RigidBody,
+    Collider, ColliderConstructor, CollisionEventsEnabled, Dominance, LockedAxes, OnCollisionEnd,
+    OnCollisionStart, PhysicsDebugPlugin, RigidBody, Sensor,
 };
 use avian3d::PhysicsPlugins;
-use bevy::audio::{PlaybackMode, Volume};
+use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
 use bevy::prelude::{
-    default, in_state, AmbientLight, App, AppExtStates, AssetServer, Assets, AudioPlayer,
-    AudioSource, Camera, Camera3d, Children, ClearColorConfig, Color, Commands, Component,
-    Condition, DirectionalLight, FixedFirst, FixedLast, FixedPreUpdate, FixedUpdate, GltfAssetLabel,
-    Handle, Image, IntoScheduleConfigs, Name, NextState, OnEnter, PlaybackSettings, Plugin, Quat,
-    Query, Res, ResMut, Resource, Scene, SceneRoot, Single, StateScoped, StateSet,
-    SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode, Transform, Trigger, UVec2, Update, Vec3,
-    With, Without,
+    default, in_state, AmbientLight, App, AppExtStates, AssetServer, Assets, AudioSource, Camera,
+    Camera3d, Children, ClearColorConfig, Color, Commands, Component, Condition,
+    DirectionalLight, FixedFirst, FixedLast, FixedPreUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs,
+    Name, NextState, OnEnter, Plugin, Quat, Query, Res, ResMut, Resource, Scene, SceneRoot,
+    Single, StateScoped, StateSet, SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode,
+    Transform, Trigger, UVec2, Update, Vec3, With, Without,
 };
 use bevy::scene::SceneInstanceReady;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
@@ -73,17 +73,21 @@ impl Plugin for OverworldPlugin {
                 .chain()
                 .run_if(in_state(OverworldState::InGame)),
         )
-        .add_systems(
-            FixedUpdate,
-            animation::animate_sprites.run_if(in_state(OverworldState::InGame)),
-        )
+        // .add_systems(
+        //     FixedUpdate,
+        // )
         .add_systems(
             FixedLast,
             multiplayer::send_current_position.run_if(in_state(MultiplayerState::Online)),
         )
         .add_systems(
             Update,
-            follow_player_with_camera.run_if(in_state(OverworldState::InGame)),
+            (
+                follow_player_with_camera,
+                animation::animate_walk_cycles,
+                animation::animate_interaction_prompts,
+            )
+                .run_if(in_state(OverworldState::InGame)),
         )
         .add_systems(
             Update,
@@ -125,6 +129,7 @@ struct OverworldSprites {
 struct OverworldSoundEffects {
     walking_1: Handle<AudioSource>,
     walking_2: Handle<AudioSource>,
+    approaching_interactable: Handle<AudioSource>,
 }
 struct OverworldSongs {
     gift_plane: Handle<AudioSource>,
@@ -181,6 +186,8 @@ fn setup_overworld(
         sound_effects: OverworldSoundEffects {
             walking_1: asset_server.load("overworld/sounds/walking_1.ogg"),
             walking_2: asset_server.load("overworld/sounds/walking_2.ogg"),
+            approaching_interactable: asset_server
+                .load("overworld/sounds/approaching_interactable.ogg"),
         },
         songs: OverworldSongs {
             gift_plane: asset_server.load("overworld/sounds/gift_plane.ogg"),
@@ -233,7 +240,7 @@ fn finish_loading(
                 },
             ),
             // Animation
-            animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+            animation::WalkCycleTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
             // Physics
             RigidBody::Dynamic,
             Collider::cuboid(1.0, 1.0, 0.2),
@@ -247,15 +254,15 @@ fn finish_loading(
         ));
 
         // Spawn music
-        commands.spawn((
-            StateScoped(AppState::Overworld),
-            AudioPlayer::new(assets.songs.gift_plane.clone()),
-            PlaybackSettings {
-                mode: PlaybackMode::Loop,
-                volume: Volume::Linear(0.5),
-                ..default()
-            },
-        ));
+        // commands.spawn((
+        //     StateScoped(AppState::Overworld),
+        //     AudioPlayer::new(assets.songs.gift_plane.clone()),
+        //     PlaybackSettings {
+        //         mode: PlaybackMode::Loop,
+        //         volume: Volume::Linear(0.5),
+        //         ..default()
+        //     },
+        // ));
 
         // Spawn camera
         commands.spawn((
@@ -283,12 +290,13 @@ fn finish_loading(
     }
 }
 
-/// On level spawn, add colliders for any blender meshes named "Hitbox Mesh".
+/// On level spawn, add the relevant components to each blender mesh.
 fn on_level_spawn(
     trigger: Trigger<SceneInstanceReady>,
     mut commands: Commands,
     children: Query<&Children>,
     names: Query<&Name>,
+    mut transforms: Query<&mut Transform>,
 ) {
     for child in children.iter_descendants(trigger.target()) {
         if let Ok(name) = names.get(child) {
@@ -297,7 +305,86 @@ fn on_level_spawn(
                     RigidBody::Static,
                     ColliderConstructor::ConvexDecompositionFromMesh,
                 ));
+            } else if name.as_str() == "Animated Interaction Prompt" {
+                let mut initial_transform = transforms
+                    .get_mut(child)
+                    .expect("The interaction prompt should have a transform already");
+                initial_transform.scale = Vec3::ZERO;
+
+                // This needs to be a separate entity because the sensor should not move when the prompt moves.
+                commands
+                    .spawn((
+                        StateScoped(AppState::Overworld),
+                        Transform::from_translation(initial_transform.translation),
+                        RigidBody::Static,
+                        Collider::cuboid(3.0, 3.0, 3.0),
+                        Sensor,
+                        CollisionEventsEnabled,
+                    ))
+                    .observe(when_approaching_interactable)
+                    .observe(when_leaving_interactable);
+
+                commands.entity(child).insert((
+                    // Make the interaction prompt invisible until it is approached.
+                    animation::AnimatedInteractionPromptState::Hidden,
+                    // Clone the initial translation and rotation so the transform can be modified freely.
+                    animation::InitialTransform(initial_transform.clone()),
+                ));
             }
+        }
+    }
+}
+
+fn when_approaching_interactable(
+    trigger: Trigger<OnCollisionStart>,
+    mut commands: Commands,
+    assets: Res<OverworldAssetCollection>,
+    transform_query: Query<&Transform>,
+    mut interaction_prompt_query: Query<(
+        &animation::InitialTransform,
+        &mut animation::AnimatedInteractionPromptState,
+    )>,
+) {
+    // Play sound
+    commands.spawn((
+        StateScoped(AppState::Overworld),
+        AudioPlayer::new(assets.sound_effects.approaching_interactable.clone()),
+        PlaybackSettings {
+            mode: PlaybackMode::Despawn,
+            ..default()
+        },
+    ));
+    // Make the corresponding prompt appear
+    let sensor_entity = trigger.target();
+    let sensor_translation = transform_query
+        .get(sensor_entity)
+        .expect("The sensor entity should have a transform")
+        .translation;
+    for (initial_transform, mut prompt_state) in interaction_prompt_query.iter_mut() {
+        if initial_transform.translation == sensor_translation {
+            *prompt_state = animation::AnimatedInteractionPromptState::Growing;
+        } else {
+            *prompt_state = animation::AnimatedInteractionPromptState::Shrinking;
+        }
+    }
+}
+
+fn when_leaving_interactable(
+    trigger: Trigger<OnCollisionEnd>,
+    transform_query: Query<&Transform>,
+    mut interaction_prompt_query: Query<(
+        &animation::InitialTransform,
+        &mut animation::AnimatedInteractionPromptState,
+    )>,
+) {
+    let sensor_entity = trigger.target();
+    let sensor_translation = transform_query
+        .get(sensor_entity)
+        .expect("The sensor entity should have a transform")
+        .translation;
+    for (initial_transform, mut prompt_state) in interaction_prompt_query.iter_mut() {
+        if initial_transform.translation == sensor_translation {
+            *prompt_state = animation::AnimatedInteractionPromptState::Shrinking;
         }
     }
 }

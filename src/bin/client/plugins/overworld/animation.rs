@@ -1,8 +1,12 @@
 use crate::plugins::overworld::input::PlayerAction;
 use crate::plugins::overworld::OverworldAssetCollection;
 use crate::AppState;
+use avian3d::math::PI;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
-use bevy::prelude::{Commands, Component, Deref, DerefMut, Query, Res, StateScoped};
+use bevy::prelude::ops::sin;
+use bevy::prelude::{
+    Commands, Component, Deref, DerefMut, Quat, Query, Res, StateScoped, Transform, Vec3,
+};
 use bevy::time::{Time, Timer};
 use bevy::utils::default;
 use bevy_sprite3d::Sprite3d;
@@ -10,22 +14,32 @@ use leafwing_input_manager::prelude::ActionState;
 
 // Components
 #[derive(Component, Deref, DerefMut)]
-pub struct AnimationTimer(pub Timer);
+pub struct InitialTransform(pub Transform);
+#[derive(Component, Eq, PartialEq, Copy, Clone)]
+pub enum AnimatedInteractionPromptState {
+    Hidden,
+    Growing,
+    Revealed,
+    Shrinking,
+}
+
+#[derive(Component, Deref, DerefMut)]
+pub struct WalkCycleTimer(pub Timer);
 
 // Systems
 // Mod (%) by the column count to find which column the atlas is in.
 // Floor divide by the row count to find which row the atlas is in. Multiply by row count to return to that row.
-pub fn animate_sprites(
+pub fn animate_walk_cycles(
     mut commands: Commands,
-    fixed_time: Res<Time>,
+    time: Res<Time>,
     mut query: Query<(
-        &mut AnimationTimer,
+        &mut WalkCycleTimer,
         &ActionState<PlayerAction>,
         &mut Sprite3d,
     )>,
     assets: Res<OverworldAssetCollection>,
 ) {
-    let delta = fixed_time.delta();
+    let delta = time.delta();
     for (mut timer, action_state, mut sprite_3d) in query.iter_mut() {
         let direction = action_state.axis_pair(&PlayerAction::Walk);
 
@@ -94,6 +108,50 @@ pub fn animate_sprites(
                     ));
                 }
             }
+        }
+    }
+}
+
+pub fn animate_interaction_prompts(
+    time: Res<Time>,
+    mut query: Query<(
+        &mut AnimatedInteractionPromptState,
+        &mut Transform,
+        &InitialTransform,
+    )>,
+) {
+    for (mut prompt_state, mut transform, initial_transform) in query.iter_mut() {
+        // Grow/shrink prompts
+        let delta_seconds = time.delta_secs();
+        match *prompt_state {
+            AnimatedInteractionPromptState::Growing => {
+                // It takes 0.25 seconds to grow to full size
+                transform.scale =
+                    (transform.scale + Vec3::splat(delta_seconds * 4.0)).min(Vec3::ONE);
+                if transform.scale == Vec3::ONE {
+                    *prompt_state = AnimatedInteractionPromptState::Revealed;
+                }
+            }
+            AnimatedInteractionPromptState::Shrinking => {
+                // It takes 0.25 seconds to shrink to zero
+                transform.scale =
+                    (transform.scale - Vec3::splat(delta_seconds * 4.0)).max(Vec3::ZERO);
+                if transform.scale == Vec3::ZERO {
+                    *prompt_state = AnimatedInteractionPromptState::Hidden;
+                }
+            }
+            _ => {}
+        }
+        // Make visible prompts bob up and down
+        if *prompt_state != AnimatedInteractionPromptState::Hidden {
+            let seconds = time.elapsed_secs();
+
+            let y_offset = sin(5.0 * seconds) / 4.0;
+            transform.translation.y = initial_transform.translation.y + y_offset;
+
+            // 10 degrees max in each direction
+            let theta_y = sin(PI * seconds) * PI / 18.0;
+            transform.rotation = initial_transform.rotation * Quat::from_rotation_y(theta_y);
         }
     }
 }
