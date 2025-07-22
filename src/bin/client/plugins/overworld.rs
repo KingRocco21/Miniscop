@@ -3,20 +3,10 @@ mod input;
 mod multiplayer;
 
 use crate::AppState;
-use avian3d::prelude::{
-    Collider, ColliderConstructor, CollisionEventsEnabled, Dominance, LockedAxes, OnCollisionEnd,
-    OnCollisionStart, PhysicsDebugPlugin, RigidBody, Sensor,
-};
+use avian3d::prelude::*;
 use avian3d::PhysicsPlugins;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
-use bevy::prelude::{
-    default, in_state, AmbientLight, App, AppExtStates, AssetServer, Assets, AudioSource, Camera,
-    Camera3d, Children, ClearColorConfig, Color, Commands, Component, Condition,
-    DirectionalLight, FixedFirst, FixedLast, FixedPreUpdate, GltfAssetLabel, Handle, Image, IntoScheduleConfigs,
-    Name, NextState, OnEnter, Plugin, Quat, Query, Res, ResMut, Resource, Scene, SceneRoot,
-    Single, StateScoped, StateSet, SubStates, TextureAtlas, TextureAtlasLayout, Timer, TimerMode,
-    Transform, Trigger, UVec2, Update, Vec3, With, Without,
-};
+use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
 use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
 use bevy_tnua::prelude::{TnuaController, TnuaControllerPlugin};
@@ -67,8 +57,9 @@ impl Plugin for OverworldPlugin {
         .add_systems(
             FixedPreUpdate,
             (
-                input::respawn,
                 input::walk.in_set(TnuaUserControlsSystemSet),
+                input::interact,
+                input::respawn,
             )
                 .chain()
                 .run_if(in_state(OverworldState::InGame)),
@@ -161,6 +152,14 @@ impl OverworldAssetCollection {
 // Components
 #[derive(Component)]
 struct Player;
+
+/// This component is given to the player whenever they can interact with something.
+#[derive(Component, Debug)]
+struct WithinRangeOfInteractable(Entity);
+
+/// This component belongs to interaction sensors, and contains the ID of its interaction prompt.
+#[derive(Component, Debug)]
+struct InteractableWithPrompt(Entity);
 
 // Systems
 fn setup_overworld(
@@ -290,7 +289,7 @@ fn finish_loading(
     }
 }
 
-/// On level spawn, add the relevant components to each blender mesh.
+/// On level spawn, add the relevant components to each blender object or mesh.
 fn on_level_spawn(
     trigger: Trigger<SceneInstanceReady>,
     mut commands: Commands,
@@ -298,38 +297,67 @@ fn on_level_spawn(
     names: Query<&Name>,
     mut transforms: Query<&mut Transform>,
 ) {
-    for child in children.iter_descendants(trigger.target()) {
-        if let Ok(name) = names.get(child) {
-            if name.contains("Hitbox Mesh") {
-                commands.entity(child).insert((
+    for blender_object_or_mesh in children.iter_descendants(trigger.target()) {
+        if let Ok(name) = names.get(blender_object_or_mesh) {
+            // Mesh flags
+            if name.contains("(Trimesh)") {
+                commands
+                    .entity(blender_object_or_mesh)
+                    .insert((RigidBody::Static, ColliderConstructor::TrimeshFromMesh));
+            } else if name.contains("(Convex Decomposition)") {
+                commands.entity(blender_object_or_mesh).insert((
                     RigidBody::Static,
                     ColliderConstructor::ConvexDecompositionFromMesh,
                 ));
-            } else if name.as_str() == "Animated Interaction Prompt" {
-                let mut initial_transform = transforms
-                    .get_mut(child)
-                    .expect("The interaction prompt should have a transform already");
-                initial_transform.scale = Vec3::ZERO;
+            }
+            // Object flags
+            else if name.contains("(Interactable)") {
+                // Here's how interactables work:
+                // 1. Get the translation of the interactable
+                let interactable_object = commands.entity(blender_object_or_mesh);
+                let sensor_translation = transforms
+                    .get(interactable_object.id())
+                    .expect("The interactable object should have a transform already")
+                    .translation;
 
-                // This needs to be a separate entity because the sensor should not move when the prompt moves.
-                commands
-                    .spawn((
-                        StateScoped(AppState::Overworld),
-                        Transform::from_translation(initial_transform.translation),
-                        RigidBody::Static,
-                        Collider::cuboid(3.0, 3.0, 3.0),
-                        Sensor,
-                        CollisionEventsEnabled,
-                    ))
-                    .observe(when_approaching_interactable)
-                    .observe(when_leaving_interactable);
+                // 2. Find the interactable's interaction prompt
+                for blender_object in children.iter_descendants(interactable_object.id()) {
+                    if let Ok(name) = names.get(blender_object)
+                        && name.as_str() == "Animated Interaction Prompt"
+                    {
+                        // 3. Spawn a sensor that is linked to the interaction prompt
+                        // Cannot add the sensor as a child to the "interactable_object" or else it will disappear for some reason, so it is spawned separately.
+                        commands
+                            .spawn((
+                                StateScoped(AppState::Overworld),
+                                Transform::from_translation(sensor_translation),
+                                RigidBody::Static,
+                                Collider::cuboid(3.0, 3.0, 3.0),
+                                Sensor,
+                                CollisionEventsEnabled,
+                                InteractableWithPrompt(blender_object),
+                            ))
+                            .observe(when_approaching_interactable)
+                            .observe(when_leaving_interactable);
 
-                commands.entity(child).insert((
-                    // Make the interaction prompt invisible until it is approached.
-                    animation::AnimatedInteractionPromptState::Hidden,
-                    // Clone the initial translation and rotation so the transform can be modified freely.
-                    animation::InitialTransform(initial_transform.clone()),
-                ));
+                        // 4. Hide the interaction prompt by default
+                        let mut prompt_transform = transforms
+                            .get_mut(blender_object)
+                            .expect("The interaction prompt should have a transform already");
+                        prompt_transform.scale = Vec3::ZERO;
+
+                        // 5. Add animation components to the interaction prompt so it can bob up and down.
+                        commands.entity(blender_object).insert((
+                            // Make the interaction prompt invisible until it is approached.
+                            animation::AnimatedInteractionPromptState::Hidden,
+                            // Clone the initial translation and rotation so the transform can be modified freely.
+                            animation::InitialTransform(prompt_transform.clone()),
+                        ));
+                        // Only one sensor and interaction prompt is allowed per interactable.
+                        // If multiple prompts are nested in the same object in Blender, only the first one will be used.
+                        break;
+                    }
+                }
             }
         }
     }
@@ -339,11 +367,8 @@ fn when_approaching_interactable(
     trigger: Trigger<OnCollisionStart>,
     mut commands: Commands,
     assets: Res<OverworldAssetCollection>,
-    transform_query: Query<&Transform>,
-    mut interaction_prompt_query: Query<(
-        &animation::InitialTransform,
-        &mut animation::AnimatedInteractionPromptState,
-    )>,
+    prompt_query: Query<&InteractableWithPrompt>,
+    mut prompt_state_query: Query<&mut animation::AnimatedInteractionPromptState>,
 ) {
     // Play sound
     commands.spawn((
@@ -354,39 +379,45 @@ fn when_approaching_interactable(
             ..default()
         },
     ));
-    // Make the corresponding prompt appear
-    let sensor_entity = trigger.target();
-    let sensor_translation = transform_query
-        .get(sensor_entity)
-        .expect("The sensor entity should have a transform")
-        .translation;
-    for (initial_transform, mut prompt_state) in interaction_prompt_query.iter_mut() {
-        if initial_transform.translation == sensor_translation {
-            *prompt_state = animation::AnimatedInteractionPromptState::Growing;
-        } else {
-            *prompt_state = animation::AnimatedInteractionPromptState::Shrinking;
-        }
-    }
+
+    // Get the prompt entity from the trigger target
+    let prompt_entity = prompt_query
+        .get(trigger.target())
+        .expect("The sensor should have an InteractableWithPrompt component")
+        .0;
+    // Change the AnimatedInteractionPromptState of the prompt entity
+    let mut prompt_state = prompt_state_query
+        .get_mut(prompt_entity)
+        .expect("The interaction prompt should have an AnimatedInteractionPromptState component");
+    *prompt_state = animation::AnimatedInteractionPromptState::Growing;
+
+    // Add the "WithinRangeOfInteractable" component to the player
+    commands
+        .entity(trigger.collider)
+        .insert(WithinRangeOfInteractable(trigger.target()));
 }
 
 fn when_leaving_interactable(
     trigger: Trigger<OnCollisionEnd>,
-    transform_query: Query<&Transform>,
-    mut interaction_prompt_query: Query<(
-        &animation::InitialTransform,
-        &mut animation::AnimatedInteractionPromptState,
-    )>,
+    mut commands: Commands,
+    prompt_query: Query<&InteractableWithPrompt>,
+    mut prompt_state_query: Query<&mut animation::AnimatedInteractionPromptState>,
 ) {
-    let sensor_entity = trigger.target();
-    let sensor_translation = transform_query
-        .get(sensor_entity)
-        .expect("The sensor entity should have a transform")
-        .translation;
-    for (initial_transform, mut prompt_state) in interaction_prompt_query.iter_mut() {
-        if initial_transform.translation == sensor_translation {
-            *prompt_state = animation::AnimatedInteractionPromptState::Shrinking;
-        }
-    }
+    // Get the prompt entity from the trigger target
+    let prompt_entity = prompt_query
+        .get(trigger.target())
+        .expect("The sensor should have an InteractableWithPrompt component")
+        .0;
+    // Change the "AnimatedInteractionPromptState" of the prompt entity
+    let mut prompt_state = prompt_state_query
+        .get_mut(prompt_entity)
+        .expect("The interaction prompt should have an AnimatedInteractionPromptState component");
+    *prompt_state = animation::AnimatedInteractionPromptState::Shrinking;
+
+    // Remove the "WithinRangeOfInteractable" component from the player
+    commands
+        .entity(trigger.collider)
+        .remove::<WithinRangeOfInteractable>();
 }
 
 fn follow_player_with_camera(

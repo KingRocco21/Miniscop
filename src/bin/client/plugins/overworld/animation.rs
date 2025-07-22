@@ -4,9 +4,7 @@ use crate::AppState;
 use avian3d::math::PI;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
 use bevy::prelude::ops::sin;
-use bevy::prelude::{
-    Commands, Component, Deref, DerefMut, Quat, Query, Res, StateScoped, Transform, Vec3,
-};
+use bevy::prelude::*;
 use bevy::time::{Time, Timer};
 use bevy::utils::default;
 use bevy_sprite3d::Sprite3d;
