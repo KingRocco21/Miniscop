@@ -1,10 +1,7 @@
 mod netcode;
 
-use crate::plugins::overworld::{OverworldAssetCollection, SPRITE_PIXELS_PER_METER};
-use bevy::prelude::{
-    default, Commands, Component, Entity, Event, EventReader, EventWriter, NextState, Query, Res,
-    ResMut, Resource, Single, StateScoped, States, TextureAtlas, Transform, Vec3,
-};
+use crate::plugins::overworld::loading;
+use bevy::prelude::*;
 use bevy::window::WindowCloseRequested;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
 use bevy_tnua::prelude::{TnuaBuiltinWalk, TnuaController};
@@ -33,7 +30,7 @@ pub enum MultiplayerState {
 ///
 /// This is guaranteed to exist when MultiplayerState is Connecting or Online.
 #[derive(Resource)]
-pub(crate) struct ServerConnection {
+pub struct ServerConnection {
     runtime: Runtime,
     pub connection_handle:
         JoinHandle<anyhow::Result<(Endpoint, Connection, JoinHandle<()>, JoinHandle<()>)>>,
@@ -68,6 +65,7 @@ impl ServerConnection {
 
 // Components
 #[derive(Component)]
+#[component(immutable)]
 pub struct OtherPlayer {
     id: u64,
 }
@@ -85,7 +83,7 @@ pub struct OtherPlayerDisconnected(u64);
 // Systems
 /// This system is not responsible for setting MultiplayerState to Online.
 /// Whichever system reads the packets should set MultiplayerState::Online when it receives Packet::ClientConnect.
-pub(crate) fn setup_client_runtime(
+pub fn setup_client_runtime(
     mut commands: Commands,
     mut next_state: ResMut<NextState<MultiplayerState>>,
 ) {
@@ -154,7 +152,7 @@ pub fn read_packets(
 /// This system updates the transforms of other players, and spawns the player if they don't exist yet.
 pub fn on_other_player_moved(
     mut commands: Commands,
-    assets: Res<OverworldAssetCollection>,
+    assets: Res<loading::OverworldAssetCollection>,
     mut sprite3d_params: Sprite3dParams,
     mut player_moved: EventReader<OtherPlayerMoved>,
     mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite3d)>,
@@ -174,7 +172,7 @@ pub fn on_other_player_moved(
                 OtherPlayer { id: movement.id },
                 Sprite3dBuilder {
                     image: assets.sprites.other_player_image.clone(),
-                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
+                    pixels_per_metre: loading::SPRITE_PIXELS_PER_METER,
                     double_sided: false,
                     unlit: true,
                     ..default()

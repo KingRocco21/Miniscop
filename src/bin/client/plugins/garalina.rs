@@ -24,6 +24,7 @@ const FADE_OUT_DURATION: f32 = 1.0;
 // Components
 /// A marker used to identify the mesh that fades to white at the end of GameState::Garalina.
 #[derive(Component)]
+#[component(immutable)]
 struct FadingMesh;
 // Resources
 #[derive(Resource)]

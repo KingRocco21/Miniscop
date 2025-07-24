@@ -1,5 +1,5 @@
-use crate::plugins::overworld::input::PlayerAction;
-use crate::plugins::overworld::OverworldAssetCollection;
+use crate::plugins::overworld::input;
+use crate::plugins::overworld::loading;
 use crate::AppState;
 use avian3d::math::PI;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
@@ -12,6 +12,7 @@ use leafwing_input_manager::prelude::ActionState;
 
 // Components
 #[derive(Component, Deref, DerefMut)]
+#[component(immutable)]
 pub struct InitialTransform(pub Transform);
 #[derive(Component, Eq, PartialEq, Copy, Clone)]
 pub enum AnimatedInteractionPromptState {
@@ -32,14 +33,14 @@ pub fn animate_walk_cycles(
     time: Res<Time>,
     mut query: Query<(
         &mut WalkCycleTimer,
-        &ActionState<PlayerAction>,
+        &ActionState<input::PlayerAction>,
         &mut Sprite3d,
     )>,
-    assets: Res<OverworldAssetCollection>,
+    assets: Res<loading::OverworldAssetCollection>,
 ) {
     let delta = time.delta();
     for (mut timer, action_state, mut sprite_3d) in query.iter_mut() {
-        let direction = action_state.axis_pair(&PlayerAction::Walk);
+        let direction = action_state.axis_pair(&input::PlayerAction::Walk);
 
         let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
 

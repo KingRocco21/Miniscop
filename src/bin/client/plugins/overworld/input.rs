@@ -1,4 +1,6 @@
-use crate::plugins::overworld::{Player, WithinRangeOfInteractable, STARTING_PLAYER_TRANSLATION};
+pub mod interaction;
+use crate::plugins::overworld::loading::STARTING_PLAYER_TRANSLATION;
+use crate::plugins::overworld::Player;
 use bevy::prelude::*;
 use bevy_tnua::math::Float;
 use bevy_tnua::prelude::{TnuaBuiltinWalk, TnuaController};
@@ -56,11 +58,25 @@ pub fn walk(query: Single<(&mut TnuaController, &ActionState<PlayerAction>), Wit
 
 /// Due to the way Bevy works, this system will only run when the player has the "WithinRangeOfInteractable" component.
 pub fn interact(
-    action_state: Single<(&ActionState<PlayerAction>, &WithinRangeOfInteractable), With<Player>>,
+    action_state: Single<
+        (
+            &ActionState<PlayerAction>,
+            &interaction::WithinRangeOfInteractable,
+        ),
+        With<Player>,
+    >,
+    interactions: Query<&interaction::OverworldInteraction>,
 ) {
     let (action_state, within_range_of) = action_state.into_inner();
     if action_state.just_pressed(&PlayerAction::Interact) {
-        info!("Interacting with {:?}", within_range_of.0);
+        let interaction = interactions
+            .get(within_range_of.0)
+            .expect("Interactable entities should always have interaction data");
+        match interaction {
+            interaction::OverworldInteraction::Text(text) => {
+                info!("{}", text);
+            }
+        }
     }
 }
 

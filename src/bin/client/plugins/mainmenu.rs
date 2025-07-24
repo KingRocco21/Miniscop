@@ -24,10 +24,13 @@ const GIFT_ASPECT_RATIO: f32 = 88.0 / 83.0;
 const LOGO_ASPECT_RATIO: f32 = 528.0 / 145.0;
 
 #[derive(Component)]
+#[component(immutable)]
 struct Title;
 #[derive(Component)]
+#[component(immutable)]
 struct Gift;
 #[derive(Component)]
+#[component(immutable)]
 struct FlashingText;
 
 // Systems
