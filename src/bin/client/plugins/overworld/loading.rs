@@ -31,6 +31,9 @@ pub struct OverworldSprites {
     guardian_image: Handle<Image>,
     pub other_player_image: Handle<Image>,
     pub sprite_layout: Handle<TextureAtlasLayout>,
+    pub text_box_image: Handle<Image>,
+    pub text_box_arrow_image: Handle<Image>,
+    pub text_box_slicer: TextureSlicer,
 }
 pub struct OverworldSoundEffects {
     pub walking_1: Handle<AudioSource>,
@@ -84,6 +87,18 @@ pub fn setup_overworld(
                 None,
                 None,
             )),
+            text_box_image: asset_server.load("overworld/2d/text_box.png"),
+            text_box_arrow_image: asset_server.load("overworld/2d/text_box_arrow.png"),
+            text_box_slicer: TextureSlicer {
+                border: BorderRect {
+                    left: 8.0,
+                    bottom: 7.0,
+                    right: 8.0,
+                    top: 7.0,
+                },
+                max_corner_scale: 3.0,
+                ..default()
+            },
         },
         sound_effects: OverworldSoundEffects {
             walking_1: asset_server.load("overworld/sounds/walking_1.ogg"),

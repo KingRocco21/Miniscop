@@ -2,17 +2,22 @@ use crate::plugins::garalina::GaralinaPlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
 use crate::plugins::overworld::OverworldPlugin;
 use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
-use bevy::prelude::{
-    default, App, AppExtStates, AssetServer, Color, Font, ImagePlugin, PluginGroup, Res, ResMut,
-    Startup, States, TextFont, Window, WindowPlugin,
-};
-use bevy::text::FontSmoothing;
+use bevy::prelude::*;
+use bevy::text::{FontSmoothing, LineHeight};
 use bevy::window::{CursorOptions, PresentMode, WindowResolution};
-use bevy::DefaultPlugins;
 use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
 
 mod plugins;
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+#[states(scoped_entities)]
+pub enum AppState {
+    #[default]
+    Garalina,
+    MainMenu,
+    Overworld,
+}
 
 fn main() {
     App::new()
@@ -29,7 +34,7 @@ fn main() {
                         //     MonitorSelection::Primary,
                         //     VideoModeSelection::Current,
                         // ),
-                        resolution: WindowResolution::new(720.0, 540.0),
+                        resolution: WindowResolution::new(960.0, 720.0), // Change back to 720.0 by 540.0 after you finish comparing with Petscop
                         resizable: false,
                         title: "Miniscop: Investigate Together!".to_string(),
                         name: Some("Miniscop".to_string()),
@@ -55,22 +60,22 @@ fn main() {
         .run();
 }
 
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
-#[states(scoped_entities)]
-pub enum AppState {
-    #[default]
-    Garalina,
-    MainMenu,
-    Overworld,
-}
-
+#[derive(Resource, Deref, DerefMut)]
+pub struct PetscopFont(TextFont);
 // Systems
-fn setup(mut fps_overlay_config: ResMut<FpsOverlayConfig>, asset_server: Res<AssetServer>) {
-    fps_overlay_config.text_config = TextFont {
-        font: asset_server.load::<Font>("global/fonts/PetscopWide.ttf"),
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut fps_overlay_config: ResMut<FpsOverlayConfig>,
+) {
+    let petscop_font_handle = asset_server.load::<Font>("global/fonts/PetscopWide.ttf");
+    let petscop_font = TextFont {
+        font: petscop_font_handle,
         font_size: 30.0,
+        line_height: LineHeight::RelativeToFont(1.0),
         font_smoothing: FontSmoothing::None,
-        ..default()
-    }
+    };
+    fps_overlay_config.text_config = petscop_font.clone();
+    commands.insert_resource(PetscopFont(petscop_font));
     // Possible fix for overlay bugs: get entity and insert renderlayer or UITargetCamera
 }

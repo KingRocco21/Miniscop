@@ -1,10 +1,9 @@
-use crate::AppState;
+use crate::{AppState, PetscopFont};
 use bevy::asset::RenderAssetUsages;
 use bevy::math::ops::{cos, sin};
 use bevy::prelude::*;
 use bevy::render::camera::RenderTarget;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
-use bevy::text::FontSmoothing;
 use bevy::ui::PositionType;
 use std::f32::consts::PI;
 
@@ -38,6 +37,7 @@ fn setup_main_menu(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut images: ResMut<Assets<Image>>,
+    petscop_font: Res<PetscopFont>,
 ) {
     // Music
     // commands.spawn((
@@ -103,8 +103,6 @@ fn setup_main_menu(
         // https://github.com/bevyengine/bevy/issues/5183
         // RenderLayers::layer(1),
     ));
-    // Font
-    let petscop_font = asset_server.load::<Font>("global/fonts/PetscopWide.ttf");
     // UI
     commands.spawn((
         StateScoped(AppState::MainMenu),
@@ -150,24 +148,14 @@ fn setup_main_menu(
                     (
                         Text::new("Press Z to Begin"),
                         TextColor::WHITE,
-                        TextFont {
-                            font: petscop_font.clone(),
-                            font_size: 50.0,
-                            font_smoothing: FontSmoothing::None,
-                            ..default()
-                        },
+                        petscop_font.clone().with_font_size(50.0),
                         FlashingText,
                     ),
                     // Copyright
                     (
                         Text::new("© 1997 Garalina"),
                         TextColor::WHITE,
-                        TextFont {
-                            font: petscop_font,
-                            font_size: 60.0,
-                            font_smoothing: FontSmoothing::None,
-                            ..default()
-                        },
+                        petscop_font.clone().with_font_size(60.0),
                         Node {
                             position_type: PositionType::Absolute,
                             bottom: Val::Percent(5.0),

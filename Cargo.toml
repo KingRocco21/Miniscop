@@ -8,24 +8,25 @@ license = "AGPL-3"
 
 [dependencies]
 # Both client and server
-quinn = "0.11.8"
-tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread", "macros"] }
-tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-anyhow = "1.0.98"
-bitcode = "0.6.6"
+quinn = "0.11"
+tokio = { version = "1.45", features = ["rt", "rt-multi-thread", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+bitcode = "0.6"
 # Client
-bevy = { version = "0.16.1", features = ["bevy_dev_tools"] }
-bevy_sprite3d = "5.0.0"
-avian3d = { version = "0.3.1", features = ["serialize"] }
-bevy-tnua = "0.24.0"
-bevy-tnua-avian3d = "0.5.0"
-leafwing-input-manager = "0.17.0"
-serde_json = "1.0.141"
-serde = { version = "1.0.219", features = ["derive"] }
+bevy = { version = "0.16", features = ["bevy_dev_tools"] }
+bevy_sprite3d = "5.0"
+avian3d = { version = "0.3", features = ["serialize"] }
+bevy-tnua = "0.24"
+bevy-tnua-avian3d = "0.5"
+leafwing-input-manager = "0.17"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+unicode-segmentation = "1.12"
 # Server
-clap = { version = "4.5.40", features = ["derive"] }
-rustls-pki-types = "1.12.0"
+clap = { version = "4.5", features = ["derive"] }
+rustls-pki-types = "1.12"
 
 
 

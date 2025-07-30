@@ -1,6 +1,8 @@
 pub mod interaction;
-use crate::plugins::overworld::loading::STARTING_PLAYER_TRANSLATION;
+
+use crate::plugins::overworld::loading::{OverworldAssetCollection, STARTING_PLAYER_TRANSLATION};
 use crate::plugins::overworld::Player;
+use crate::AppState;
 use bevy::prelude::*;
 use bevy_tnua::math::Float;
 use bevy_tnua::prelude::{TnuaBuiltinWalk, TnuaController};
@@ -60,21 +62,64 @@ pub fn walk(query: Single<(&mut TnuaController, &ActionState<PlayerAction>), Wit
 pub fn interact(
     action_state: Single<
         (
-            &ActionState<PlayerAction>,
+            &mut ActionState<PlayerAction>,
             &interaction::WithinRangeOfInteractable,
         ),
         With<Player>,
     >,
     interactions: Query<&interaction::OverworldInteraction>,
+    mut commands: Commands,
+    assets: Res<OverworldAssetCollection>,
 ) {
-    let (action_state, within_range_of) = action_state.into_inner();
+    let (mut action_state, within_range_of) = action_state.into_inner();
     if action_state.just_pressed(&PlayerAction::Interact) {
         let interaction = interactions
             .get(within_range_of.0)
             .expect("Interactable entities should always have interaction data");
+        action_state.disable();
         match interaction {
             interaction::OverworldInteraction::Text(text) => {
-                info!("{}", text);
+                // Entire screen
+                let container_node = Node {
+                    width: Val::Percent(100.0),
+                    height: Val::Percent(100.0),
+                    ..default()
+                };
+
+                let text_box_node = (
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: Val::Percent(9.375),
+                        bottom: Val::Percent(12.5),
+                        width: Val::Vw(81.25),
+                        height: Val::Vh(28.75),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                    ImageNode {
+                        image: assets.sprites.text_box_image.clone(),
+                        image_mode: NodeImageMode::Sliced(assets.sprites.text_box_slicer.clone()),
+                        ..default()
+                    },
+                    interaction::TextBoxNode,
+                );
+
+                let text_node = (
+                    Node {
+                        width: Val::Vw(75.0),
+                        height: Val::Vh(20.0),
+                        ..default()
+                    },
+                    Text::default(),
+                    interaction::CompleteText::new(text),
+                );
+
+                commands.spawn((
+                    StateScoped(AppState::Overworld),
+                    container_node,
+                    children![(text_box_node, children![text_node])],
+                ));
             }
         }
     }

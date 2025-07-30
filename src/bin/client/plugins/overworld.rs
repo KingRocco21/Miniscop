@@ -84,6 +84,7 @@ impl Plugin for OverworldPlugin {
                 follow_player_with_camera,
                 animation::animate_walk_cycles,
                 animation::animate_interaction_prompts,
+                input::interaction::typewrite_text,
             )
                 .run_if(in_state(OverworldState::InGame)),
         )
