@@ -4,13 +4,13 @@ mod loading;
 mod multiplayer;
 
 use crate::AppState;
-use avian3d::prelude::*;
 use avian3d::PhysicsPlugins;
+use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_tnua::prelude::TnuaControllerPlugin;
 use bevy_tnua::TnuaUserControlsSystemSet;
+use bevy_tnua::prelude::TnuaControllerPlugin;
 use bevy_tnua_avian3d::TnuaAvian3dPlugin;
-use leafwing_input_manager::prelude::InputManagerPlugin;
+use leafwing_input_manager::prelude::{ActionState, InputManagerPlugin};
 use multiplayer::MultiplayerState;
 
 // Sub-States
@@ -32,11 +32,20 @@ impl Plugin for OverworldPlugin {
             TnuaControllerPlugin::new(FixedPreUpdate),
             TnuaAvian3dPlugin::new(FixedPreUpdate),
             InputManagerPlugin::<input::PlayerAction>::default(),
+            InputManagerPlugin::<input::TextAction>::default(),
         ))
+        .init_resource::<ActionState<input::PlayerAction>>()
+        .init_resource::<ActionState<input::TextAction>>()
+        .insert_resource(input::PlayerAction::default_input_map())
+        .insert_resource(input::TextAction::default_input_map())
         .add_sub_state::<OverworldState>()
         .init_state::<MultiplayerState>()
         .add_event::<multiplayer::OtherPlayerMoved>()
         .add_event::<multiplayer::OtherPlayerDisconnected>()
+        .add_systems(
+            Startup,
+            |mut text_action: ResMut<ActionState<input::TextAction>>| text_action.disable(),
+        )
         .add_systems(
             OnEnter(AppState::Overworld),
             (loading::setup_overworld, multiplayer::setup_client_runtime),
@@ -65,7 +74,8 @@ impl Plugin for OverworldPlugin {
             FixedPreUpdate,
             (
                 input::walk.in_set(TnuaUserControlsSystemSet),
-                input::interact,
+                input::interaction::interact,
+                input::interaction::proceed_text,
                 input::respawn,
             )
                 .chain()
@@ -84,6 +94,7 @@ impl Plugin for OverworldPlugin {
                 follow_player_with_camera,
                 animation::animate_walk_cycles,
                 animation::animate_interaction_prompts,
+                animation::flicker_text_box_arrow,
                 input::interaction::typewrite_text,
             )
                 .run_if(in_state(OverworldState::InGame)),

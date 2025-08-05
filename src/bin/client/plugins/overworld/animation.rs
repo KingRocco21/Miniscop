@@ -1,6 +1,6 @@
+use crate::AppState;
 use crate::plugins::overworld::input;
 use crate::plugins::overworld::loading;
-use crate::AppState;
 use avian3d::math::PI;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
 use bevy::prelude::ops::sin;
@@ -23,7 +23,7 @@ pub enum AnimatedInteractionPromptState {
 }
 
 #[derive(Component, Deref, DerefMut)]
-pub struct WalkCycleTimer(pub Timer);
+pub struct AnimationTimer(pub Timer);
 
 // Systems
 // Mod (%) by the column count to find which column the atlas is in.
@@ -31,16 +31,13 @@ pub struct WalkCycleTimer(pub Timer);
 pub fn animate_walk_cycles(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(
-        &mut WalkCycleTimer,
-        &ActionState<input::PlayerAction>,
-        &mut Sprite3d,
-    )>,
+    mut query: Query<(&mut AnimationTimer, &mut Sprite3d)>,
+    player_action: ResMut<ActionState<input::PlayerAction>>,
     assets: Res<loading::OverworldAssetCollection>,
 ) {
     let delta = time.delta();
-    for (mut timer, action_state, mut sprite_3d) in query.iter_mut() {
-        let direction = action_state.axis_pair(&input::PlayerAction::Walk);
+    for (mut timer, mut sprite_3d) in query.iter_mut() {
+        let direction = player_action.axis_pair(&input::PlayerAction::Walk);
 
         let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
 
@@ -151,6 +148,23 @@ pub fn animate_interaction_prompts(
             // 10 degrees max in each direction
             let theta_y = sin(PI * seconds) * PI / 18.0;
             transform.rotation = initial_transform.rotation * Quat::from_rotation_y(theta_y);
+        }
+    }
+}
+
+pub fn flicker_text_box_arrow(
+    arrow: Single<
+        (&mut AnimationTimer, &mut Visibility),
+        With<input::interaction::TextBoxArrowNode>,
+    >,
+    time: Res<Time>,
+) {
+    let (mut timer, mut visibility) = arrow.into_inner();
+    // If the timer is not paused, the arrow should animate.
+    if !timer.paused() {
+        timer.tick(time.delta());
+        if timer.just_finished() {
+            visibility.toggle_visible_hidden();
         }
     }
 }

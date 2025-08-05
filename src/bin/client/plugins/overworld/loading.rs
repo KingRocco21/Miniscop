@@ -11,6 +11,7 @@ use bevy_tnua::controller::TnuaController;
 use bevy_tnua_avian3d::TnuaAvian3dSensorShape;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
+use bevy::audio::{PlaybackMode, Volume};
 use tracing::error;
 
 // Constants
@@ -157,7 +158,7 @@ pub fn finish_loading(
                 },
             ),
             // Animation
-            animation::WalkCycleTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+            animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
             // Physics
             RigidBody::Dynamic,
             Collider::cuboid(1.0, 1.0, 0.2),
@@ -166,8 +167,6 @@ pub fn finish_loading(
             // Character Controller
             TnuaController::default(),
             TnuaAvian3dSensorShape(Collider::cuboid(0.9, 0.0, 0.1)),
-            // Input
-            input::PlayerAction::default_input_map(),
         ));
 
         // Spawn music
