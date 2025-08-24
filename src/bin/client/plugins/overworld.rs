@@ -92,6 +92,7 @@ impl Plugin for OverworldPlugin {
             Update,
             (
                 follow_player_with_camera,
+                animation::billboard_sprites,
                 animation::animate_walk_cycles,
                 animation::animate_interaction_prompts,
                 animation::flicker_text_box_arrow,

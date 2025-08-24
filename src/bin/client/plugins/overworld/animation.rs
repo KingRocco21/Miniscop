@@ -26,6 +26,15 @@ pub enum AnimatedInteractionPromptState {
 pub struct AnimationTimer(pub Timer);
 
 // Systems
+pub fn billboard_sprites(
+    camera: Single<&Transform, With<Camera3d>>,
+    mut query: Query<&mut Transform, (With<Sprite3d>, Without<Camera3d>)>,
+) {
+    for mut transform in query.iter_mut() {
+        transform.rotation = camera.rotation;
+    }
+}
+
 // Mod (%) by the column count to find which column the atlas is in.
 // Floor divide by the row count to find which row the atlas is in. Multiply by row count to return to that row.
 pub fn animate_walk_cycles(

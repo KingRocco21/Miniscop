@@ -1,6 +1,6 @@
 mod netcode;
 
-use crate::plugins::overworld::loading;
+use crate::plugins::overworld::{Player, animation, loading};
 use bevy::prelude::*;
 use bevy::window::WindowCloseRequested;
 use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
@@ -210,13 +210,16 @@ pub fn on_other_player_disconnected(
 pub fn send_current_position(
     connection: Res<ServerConnection>,
     mut next_state: ResMut<NextState<MultiplayerState>>,
-    position: Single<(&TnuaController, &Transform, &Sprite3d)>,
+    position: Single<(&TnuaController, &Transform), With<Player>>,
+    sprite_3d: Single<&Sprite3d, With<animation::AnimationTimer>>,
 ) {
-    let (controller, transform, sprite_3d) = position.into_inner();
+    let (controller, transform) = position.into_inner();
     let (_, walk_state) = controller
         .concrete_basis::<TnuaBuiltinWalk>()
         .expect("The player should have a walk state.");
     let velocity = walk_state.running_velocity;
+
+    let sprite_3d = sprite_3d.into_inner();
 
     if velocity.length() > 0.001 {
         let packet = Packet::PlayerMovement {

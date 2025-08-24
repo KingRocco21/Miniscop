@@ -172,6 +172,8 @@ pub fn interact(
                     StateScoped(AppState::Overworld),
                     container_node,
                     children![(text_box_node, children![text_node, arrow_node])],
+                    // // Fix for https://bevyengine.org/learn/errors/b0004
+                    // Visibility::default(),
                 ));
             }
         }

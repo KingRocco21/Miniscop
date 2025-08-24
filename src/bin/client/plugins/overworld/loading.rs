@@ -1,8 +1,9 @@
-use crate::plugins::overworld::input::interaction;
-use crate::plugins::overworld::{animation, input, OverworldState, Player};
 use crate::AppState;
+use crate::plugins::overworld::input::interaction;
+use crate::plugins::overworld::{OverworldState, Player, animation, input};
 use avian3d::prelude::*;
 use bevy::app::AppExit;
+use bevy::audio::{PlaybackMode, Volume};
 use bevy::gltf::GltfMeshExtras;
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
@@ -11,7 +12,6 @@ use bevy_tnua::controller::TnuaController;
 use bevy_tnua_avian3d::TnuaAvian3dSensorShape;
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
-use bevy::audio::{PlaybackMode, Volume};
 use tracing::error;
 
 // Constants
@@ -142,31 +142,33 @@ pub fn finish_loading(
             StateScoped(AppState::Overworld),
             Player,
             Transform::from_translation(STARTING_PLAYER_TRANSLATION),
-            // Sprite
-            Sprite3dBuilder {
-                image: assets.sprites.guardian_image.clone(),
-                pixels_per_metre: SPRITE_PIXELS_PER_METER,
-                double_sided: false,
-                unlit: true,
-                ..default()
-            }
-            .bundle_with_atlas(
-                &mut sprite3d_params,
-                TextureAtlas {
-                    layout: assets.sprites.sprite_layout.clone(),
-                    index: 0,
-                },
-            ),
-            // Animation
-            animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
             // Physics
             RigidBody::Dynamic,
-            Collider::cuboid(1.0, 1.0, 0.2),
+            Collider::cuboid(1.0, 1.0, 1.0),
             LockedAxes::ROTATION_LOCKED,
             Dominance(1),
             // Character Controller
             TnuaController::default(),
-            TnuaAvian3dSensorShape(Collider::cuboid(0.9, 0.0, 0.1)),
+            TnuaAvian3dSensorShape(Collider::cuboid(0.8, 0.0, 0.8)),
+            children![(
+                // Sprite (must be rotated separately from the collider)
+                Sprite3dBuilder {
+                    image: assets.sprites.guardian_image.clone(),
+                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
+                    double_sided: false,
+                    unlit: true,
+                    ..default()
+                }
+                .bundle_with_atlas(
+                    &mut sprite3d_params,
+                    TextureAtlas {
+                        layout: assets.sprites.sprite_layout.clone(),
+                        index: 0,
+                    },
+                ),
+                // Animation
+                animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+            )],
         ));
 
         // Spawn music
