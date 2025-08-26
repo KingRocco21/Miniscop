@@ -25,7 +25,7 @@ pub const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 4.0, 8.0);
 pub struct OverworldAssetCollection {
     pub level: Handle<Scene>,
     pub sprites: OverworldSprites,
-    pub sound_effects: OverworldSoundEffects,
+    pub sfx: OverworldSoundEffects,
     pub songs: OverworldSongs,
 }
 pub struct OverworldSprites {
@@ -40,6 +40,9 @@ pub struct OverworldSoundEffects {
     pub walking_1: Handle<AudioSource>,
     pub walking_2: Handle<AudioSource>,
     pub approaching_interactable: Handle<AudioSource>,
+    pub dialogue_start: Handle<AudioSource>,
+    pub dialogue: Handle<AudioSource>,
+    pub dialogue_end: Handle<AudioSource>,
 }
 pub struct OverworldSongs {
     pub gift_plane: Handle<AudioSource>,
@@ -57,10 +60,10 @@ impl OverworldAssetCollection {
                 .get_load_state(self.sprites.other_player_image.id())
                 .is_some_and(|state| state.is_loaded())
             && asset_server
-                .get_load_state(self.sound_effects.walking_1.id())
+                .get_load_state(self.sfx.walking_1.id())
                 .is_some_and(|state| state.is_loaded())
             && asset_server
-                .get_load_state(self.sound_effects.walking_2.id())
+                .get_load_state(self.sfx.walking_2.id())
                 .is_some_and(|state| state.is_loaded())
             && asset_server
                 .get_load_state(self.songs.gift_plane.id())
@@ -101,11 +104,14 @@ pub fn setup_overworld(
                 ..default()
             },
         },
-        sound_effects: OverworldSoundEffects {
+        sfx: OverworldSoundEffects {
             walking_1: asset_server.load("overworld/sounds/walking_1.ogg"),
             walking_2: asset_server.load("overworld/sounds/walking_2.ogg"),
             approaching_interactable: asset_server
                 .load("overworld/sounds/approaching_interactable.ogg"),
+            dialogue_start: asset_server.load("overworld/sounds/dialogue_start.ogg"),
+            dialogue: asset_server.load("overworld/sounds/dialogue.ogg"),
+            dialogue_end: asset_server.load("overworld/sounds/dialogue_end.ogg"),
         },
         songs: OverworldSongs {
             gift_plane: asset_server.load("overworld/sounds/gift_plane.ogg"),

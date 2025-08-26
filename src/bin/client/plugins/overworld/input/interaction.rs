@@ -1,9 +1,10 @@
+use crate::plugins::overworld::animation::AnimationTimer;
 use crate::plugins::overworld::input::{PlayerAction, TextAction};
 use crate::plugins::overworld::loading::OverworldAssetCollection;
 use crate::plugins::overworld::{animation, Player};
 use crate::{AppState, PetscopFont};
 use avian3d::prelude::{OnCollisionEnd, OnCollisionStart};
-use bevy::audio::PlaybackMode;
+use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::*;
 use leafwing_input_manager::action_state::ActionState;
 use std::collections::VecDeque;
@@ -37,7 +38,7 @@ pub fn when_approaching_interactable(
     // Play sound
     commands.spawn((
         StateScoped(AppState::Overworld),
-        AudioPlayer::new(assets.sound_effects.approaching_interactable.clone()),
+        AudioPlayer::new(assets.sfx.approaching_interactable.clone()),
         PlaybackSettings {
             mode: PlaybackMode::Despawn,
             ..default()
@@ -90,6 +91,8 @@ pub struct ScreenContainerNode;
 pub struct TextBoxNode;
 #[derive(Component)]
 pub struct TextBoxArrowNode;
+#[derive(Component)]
+pub struct DialogueSfx;
 
 /// Due to the way Bevy works, this system will only run when the player has the "WithinRangeOfInteractable" component.
 pub fn interact(
@@ -164,14 +167,40 @@ pub fn interact(
                         ..default()
                     },
                     Transform::from_scale(Vec3::splat(3.0)),
-                    animation::AnimationTimer(arrow_animation_timer),
+                    AnimationTimer(arrow_animation_timer),
                     Visibility::Hidden,
+                );
+
+                // Play dialogue sound as a child of the interaction
+                // (It needs to be despawned when the interaction ends)
+                let dialogue_sfx = (
+                    DialogueSfx,
+                    AudioPlayer::new(assets.sfx.dialogue.clone()),
+                    PlaybackSettings {
+                        mode: PlaybackMode::Loop,
+                        volume: Volume::Linear(0.5),
+                        ..default()
+                    },
                 );
 
                 commands.spawn((
                     StateScoped(AppState::Overworld),
                     container_node,
-                    children![(text_box_node, children![text_node, arrow_node])],
+                    children![
+                        (text_box_node, children![text_node, arrow_node]),
+                        dialogue_sfx
+                    ],
+                ));
+
+                // Play dialogue start sound
+                commands.spawn((
+                    StateScoped(AppState::Overworld),
+                    AudioPlayer::new(assets.sfx.dialogue_start.clone()),
+                    PlaybackSettings {
+                        mode: PlaybackMode::Despawn,
+                        volume: Volume::Linear(0.5),
+                        ..default()
+                    },
                 ));
             }
         }
@@ -195,8 +224,11 @@ enum CustomGrapheme {
 /// This is also known as the "typewriter effect."
 #[derive(Component)]
 pub struct CompleteText {
+    /// A queue of all graphemes to be displayed from the text interaction.
     graphemes: VecDeque<CustomGrapheme>,
+    /// The duration to wait before showing the next grapheme.
     typewriter_timer: Timer,
+    /// The duration to wait after punctuation.
     punctuation_pause_timer: Timer,
 }
 
@@ -233,13 +265,143 @@ impl CompleteText {
     }
 }
 
-/// Pops a grapheme.
+pub fn proceed_text(
+    mut commands: Commands,
+    mut player_action: ResMut<ActionState<PlayerAction>>,
+    mut text_action: ResMut<ActionState<TextAction>>,
+    screen_container_node: Single<Entity, With<ScreenContainerNode>>,
+    text_node: Single<(Entity, &mut CompleteText)>,
+    dialogue_sfx: Single<&AudioSink, With<DialogueSfx>>,
+    arrow_node: Single<(&mut Visibility, &mut AnimationTimer), With<TextBoxArrowNode>>,
+    petscop_font: Res<PetscopFont>,
+    assets: Res<OverworldAssetCollection>,
+) {
+    // This prevents the player's interaction from opening the text box AND skipping to the end of the paragraph on the same frame.
+    if text_action.disabled() {
+        text_action.enable();
+        return;
+    }
+    if text_action.just_pressed(&TextAction::Proceed) {
+        let screen_container_node = screen_container_node.into_inner();
+        let (text_node, mut text) = text_node.into_inner();
+        // There are three possibilities:
+        // 1. There is no more text left to display.
+        //      The dialogue end sfx needs to play,
+        //      and the text interaction needs to end.
+        // 2. The end of a paragraph was previously reached.
+        //      The dialogue start sfx needs to play,
+        //      the dialogue sfx needs to be unpaused,
+        //      and the text and arrow need to be cleared so new graphemes can be displayed.
+        // 3. The text is currently typewriting, and needs to skip to the end of the paragraph.
+        if text.graphemes.is_empty() {
+            // info!("No more graphemes, despawning");
+
+            // Play dialogue end sound
+            commands.spawn((
+                StateScoped(AppState::Overworld),
+                AudioPlayer::new(assets.sfx.dialogue_end.clone()),
+                PlaybackSettings {
+                    mode: PlaybackMode::Despawn,
+                    volume: Volume::Linear(0.5),
+                    ..default()
+                },
+            ));
+
+            commands.entity(screen_container_node).despawn();
+            text_action.disable();
+            player_action.enable();
+        } else if text.typewriter_timer.paused() && text.punctuation_pause_timer.paused() {
+            // info!("Starting new paragraph");
+            commands.entity(text_node).despawn_related::<Children>();
+
+            // Play dialogue start sound
+            commands.spawn((
+                StateScoped(AppState::Overworld),
+                AudioPlayer::new(assets.sfx.dialogue_start.clone()),
+                PlaybackSettings {
+                    mode: PlaybackMode::Despawn,
+                    volume: Volume::Linear(0.5),
+                    ..default()
+                },
+            ));
+
+            // Play dialogue sfx
+            dialogue_sfx.play();
+
+            // Make arrow invisible and prevent it from flickering
+            let (mut arrow_visibility, mut arrow_timer) = arrow_node.into_inner();
+            *arrow_visibility = Visibility::Hidden;
+            arrow_timer.pause();
+
+            text.typewriter_timer.unpause();
+            text.punctuation_pause_timer.unpause();
+        } else {
+            // info!("Popping next grapheme: {:?}", text.graphemes.get(0));
+            let (mut arrow_visibility, mut arrow_timer) = arrow_node.into_inner();
+            while pop_grapheme(
+                &mut *text,
+                &mut commands,
+                &text_node,
+                &*dialogue_sfx,
+                &mut *arrow_visibility,
+                &mut *arrow_timer,
+                &petscop_font,
+            ) {}
+        }
+    }
+}
+pub fn typewrite_text(
+    mut commands: Commands,
+    text_node: Single<(Entity, &mut CompleteText)>,
+    dialogue_sfx: Single<&AudioSink, With<DialogueSfx>>,
+    arrow_node: Single<(&mut Visibility, &mut AnimationTimer), With<TextBoxArrowNode>>,
+    time: Res<Time>,
+    petscop_font: Res<PetscopFont>,
+) {
+    let delta = time.delta();
+
+    let (text_node, mut text) = text_node.into_inner();
+    if text.typewriter_timer.paused() {
+        text.punctuation_pause_timer.tick(delta);
+        if text.punctuation_pause_timer.just_finished() {
+            text.punctuation_pause_timer.reset();
+            text.typewriter_timer.unpause();
+
+            dialogue_sfx.play();
+        }
+    }
+
+    text.typewriter_timer.tick(delta);
+    if text.typewriter_timer.just_finished() {
+        let (mut arrow_visibility, mut arrow_timer) = arrow_node.into_inner();
+        pop_grapheme(
+            &mut *text,
+            &mut commands,
+            &text_node,
+            &*dialogue_sfx,
+            &mut *arrow_visibility,
+            &mut *arrow_timer,
+            &petscop_font,
+        );
+    }
+}
+
+/// Pops the next grapheme from the front of the queue.
+///
+/// If the grapheme is a pause or a paragraph end, or if the queue is empty,
+/// the dialogue sfx will pause.
+///
+/// If the grapheme is a paragraph end or the queue is empty,
+/// the arrow will be made visible so it can begin flickering.
+///
 /// Returns whether any further graphemes should be popped.
-/// If false, you should make the arrow visible.
 fn pop_grapheme(
     text: &mut CompleteText,
     commands: &mut Commands,
     text_node: &Entity,
+    dialogue_sfx: &AudioSink,
+    arrow_visibility: &mut Visibility,
+    arrow_timer: &mut AnimationTimer,
     petscop_font: &PetscopFont,
 ) -> bool {
     match text.graphemes.pop_front() {
@@ -259,6 +421,7 @@ fn pop_grapheme(
                 commands.entity(*text_node).add_child(next_text_span);
                 if precedes_pause {
                     text.typewriter_timer.pause();
+                    dialogue_sfx.pause();
                 }
                 true
             }
@@ -270,88 +433,24 @@ fn pop_grapheme(
             CustomGrapheme::EndOfParagraph => {
                 text.typewriter_timer.pause();
                 text.punctuation_pause_timer.pause();
+
+                dialogue_sfx.pause();
+
+                *arrow_visibility = Visibility::Visible;
+                arrow_timer.reset();
+                arrow_timer.unpause();
                 false
             }
         },
         None => {
             // info!("No more graphemes.");
             // No more graphemes, so the text box will close the next time the player interacts.
+            dialogue_sfx.pause();
+
+            *arrow_visibility = Visibility::Visible;
+            arrow_timer.reset();
+            arrow_timer.unpause();
             false
-        }
-    }
-}
-pub fn proceed_text(
-    mut commands: Commands,
-    mut player_action: ResMut<ActionState<PlayerAction>>,
-    mut text_action: ResMut<ActionState<TextAction>>,
-    screen_container_node: Single<Entity, With<ScreenContainerNode>>,
-    text_node: Single<(Entity, &mut CompleteText)>,
-    arrow_node: Single<(&mut Visibility, &mut animation::AnimationTimer), With<TextBoxArrowNode>>,
-    petscop_font: Res<PetscopFont>,
-) {
-    // This prevents the player's interaction from opening the text box AND skipping to the end of the paragraph on the same frame.
-    if text_action.disabled() {
-        text_action.enable();
-        return;
-    }
-    if text_action.just_pressed(&TextAction::Proceed) {
-        let screen_container_node = screen_container_node.into_inner();
-        let (text_node, mut text) = text_node.into_inner();
-        // There are three possibilities:
-        // 1. There is no more text left to display
-        // 2. The end of a paragraph was previously reached, and the text and arrow needs to be cleared.
-        // 3. The text is currently typewriting, and needs to skip to the end of the paragraph.
-        if text.graphemes.is_empty() {
-            // info!("No more graphemes, despawning");
-            commands.entity(screen_container_node).despawn();
-            text_action.disable();
-            player_action.enable();
-        } else if text.typewriter_timer.paused() && text.punctuation_pause_timer.paused() {
-            // info!("Starting new paragraph");
-            commands.entity(text_node).despawn_related::<Children>();
-            // Make arrow invisible and prevent it from flickering
-            let (mut arrow_visibility, mut arrow_timer) = arrow_node.into_inner();
-            *arrow_visibility = Visibility::Hidden;
-            arrow_timer.pause();
-
-            text.typewriter_timer.unpause();
-            text.punctuation_pause_timer.unpause();
-        } else {
-            // info!("Popping next grapheme: {:?}", text.graphemes.get(0));
-            while pop_grapheme(&mut *text, &mut commands, &text_node, &petscop_font) {}
-            // Make arrow visible and allow it to start flickering
-            let (mut arrow_visibility, mut arrow_timer) = arrow_node.into_inner();
-            *arrow_visibility = Visibility::Visible;
-            arrow_timer.reset();
-            arrow_timer.unpause();
-        }
-    }
-}
-
-pub fn typewrite_text(
-    mut commands: Commands,
-    text_node: Single<(Entity, &mut CompleteText)>,
-    arrow_node: Single<(&mut Visibility, &mut animation::AnimationTimer), With<TextBoxArrowNode>>,
-    time: Res<Time>,
-    petscop_font: Res<PetscopFont>,
-) {
-    let (text_node, mut text) = text_node.into_inner();
-    let delta = time.delta();
-    if text.typewriter_timer.paused() {
-        text.punctuation_pause_timer.tick(delta);
-        if text.punctuation_pause_timer.just_finished() {
-            text.punctuation_pause_timer.reset();
-            text.typewriter_timer.unpause();
-        }
-    }
-    text.typewriter_timer.tick(delta);
-    if text.typewriter_timer.just_finished() {
-        if !pop_grapheme(&mut *text, &mut commands, &text_node, &petscop_font) {
-            // Make arrow visible and allow it to start flickering
-            let (mut arrow_visibility, mut arrow_timer) = arrow_node.into_inner();
-            *arrow_visibility = Visibility::Visible;
-            arrow_timer.reset();
-            arrow_timer.unpause();
         }
     }
 }

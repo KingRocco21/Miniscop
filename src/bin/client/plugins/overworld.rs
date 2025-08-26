@@ -4,11 +4,11 @@ mod loading;
 mod multiplayer;
 
 use crate::AppState;
-use avian3d::PhysicsPlugins;
 use avian3d::prelude::*;
+use avian3d::PhysicsPlugins;
 use bevy::prelude::*;
-use bevy_tnua::TnuaUserControlsSystemSet;
 use bevy_tnua::prelude::TnuaControllerPlugin;
+use bevy_tnua::TnuaUserControlsSystemSet;
 use bevy_tnua_avian3d::TnuaAvian3dPlugin;
 use leafwing_input_manager::prelude::{ActionState, InputManagerPlugin};
 use multiplayer::MultiplayerState;

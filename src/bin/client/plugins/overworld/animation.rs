@@ -1,6 +1,6 @@
-use crate::AppState;
 use crate::plugins::overworld::input;
 use crate::plugins::overworld::loading;
+use crate::AppState;
 use avian3d::math::PI;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
 use bevy::prelude::ops::sin;
@@ -96,7 +96,7 @@ pub fn animate_walk_cycles(
                 if current_frame == 2 {
                     commands.spawn((
                         StateScoped(AppState::Overworld),
-                        AudioPlayer::new(assets.sound_effects.walking_1.clone()),
+                        AudioPlayer::new(assets.sfx.walking_1.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
                             ..default()
@@ -105,7 +105,7 @@ pub fn animate_walk_cycles(
                 } else if current_frame == 4 {
                     commands.spawn((
                         StateScoped(AppState::Overworld),
-                        AudioPlayer::new(assets.sound_effects.walking_2.clone()),
+                        AudioPlayer::new(assets.sfx.walking_2.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
                             ..default()
