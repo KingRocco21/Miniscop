@@ -1,6 +1,6 @@
-use crate::AppState;
 use crate::plugins::overworld::input::interaction;
-use crate::plugins::overworld::{OverworldState, Player, animation, input};
+use crate::plugins::overworld::{animation, input, OverworldState, Player};
+use crate::AppState;
 use avian3d::prelude::*;
 use bevy::app::AppExit;
 use bevy::audio::{PlaybackMode, Volume};
@@ -150,6 +150,8 @@ pub fn finish_loading(
             // Character Controller
             TnuaController::default(),
             TnuaAvian3dSensorShape(Collider::cuboid(0.8, 0.0, 0.8)),
+            // Fix for https://bevy.org/learn/errors/b0004/
+            Visibility::default(),
             children![(
                 // Sprite (must be rotated separately from the collider)
                 Sprite3dBuilder {

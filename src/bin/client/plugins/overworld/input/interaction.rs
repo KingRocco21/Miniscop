@@ -1,6 +1,6 @@
 use crate::plugins::overworld::input::{PlayerAction, TextAction};
 use crate::plugins::overworld::loading::OverworldAssetCollection;
-use crate::plugins::overworld::{Player, animation};
+use crate::plugins::overworld::{animation, Player};
 use crate::{AppState, PetscopFont};
 use avian3d::prelude::{OnCollisionEnd, OnCollisionStart};
 use bevy::audio::PlaybackMode;
@@ -172,8 +172,6 @@ pub fn interact(
                     StateScoped(AppState::Overworld),
                     container_node,
                     children![(text_box_node, children![text_node, arrow_node])],
-                    // // Fix for https://bevyengine.org/learn/errors/b0004
-                    // Visibility::default(),
                 ));
             }
         }
