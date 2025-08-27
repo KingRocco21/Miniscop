@@ -86,12 +86,16 @@ pub fn when_leaving_interactable(
 }
 
 #[derive(Component)]
+#[component(immutable)]
 pub struct ScreenContainerNode;
 #[derive(Component)]
+#[component(immutable)]
 pub struct TextBoxNode;
 #[derive(Component)]
+#[component(immutable)]
 pub struct TextBoxArrowNode;
 #[derive(Component)]
+#[component(immutable)]
 pub struct DialogueSfx;
 
 /// Due to the way Bevy works, this system will only run when the player has the "WithinRangeOfInteractable" component.
@@ -220,6 +224,7 @@ enum CustomGrapheme {
 }
 
 /// This component is given to UI text boxes, and contains a copy of the text from whichever text interaction the player starts.
+///
 /// This text is used to spawn TextSpans that display the text character by character.
 /// This is also known as the "typewriter effect."
 #[derive(Component)]
