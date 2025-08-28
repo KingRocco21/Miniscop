@@ -18,7 +18,7 @@ use tracing::error;
 /// Note: Based on current guardian sprite
 pub const SPRITE_PIXELS_PER_METER: f32 = 33.0;
 pub const STARTING_PLAYER_TRANSLATION: Vec3 = Vec3::new(-2.0, input::FLOAT_HEIGHT, 0.0);
-pub const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 4.0, 8.0);
+pub const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 5.0, 10.0);
 
 // Resources
 #[derive(Resource)]
@@ -60,10 +60,28 @@ impl OverworldAssetCollection {
                 .get_load_state(self.sprites.other_player_image.id())
                 .is_some_and(|state| state.is_loaded())
             && asset_server
+                .get_load_state(self.sprites.text_box_image.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sprites.text_box_arrow_image.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
                 .get_load_state(self.sfx.walking_1.id())
                 .is_some_and(|state| state.is_loaded())
             && asset_server
                 .get_load_state(self.sfx.walking_2.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sfx.dialogue_start.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sfx.approaching_interactable.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sfx.dialogue.id())
+                .is_some_and(|state| state.is_loaded())
+            && asset_server
+                .get_load_state(self.sfx.dialogue_end.id())
                 .is_some_and(|state| state.is_loaded())
             && asset_server
                 .get_load_state(self.songs.gift_plane.id())
