@@ -7,7 +7,7 @@ use bevy::audio::{PlaybackMode, Volume};
 use bevy::gltf::GltfMeshExtras;
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
-use bevy_sprite3d::{Sprite3dBuilder, Sprite3dParams};
+use bevy_sprite3d::Sprite3d;
 use bevy_tnua::controller::TnuaController;
 use bevy_tnua_avian3d::TnuaAvian3dSensorShape;
 use serde::{Deserialize, Serialize};
@@ -141,7 +141,6 @@ pub fn finish_loading(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     assets: Res<OverworldAssetCollection>,
-    mut sprite3d_params: Sprite3dParams,
     mut next_state: ResMut<NextState<OverworldState>>,
 ) {
     if assets.all_assets_are_loaded(&asset_server) {
@@ -178,20 +177,20 @@ pub fn finish_loading(
             Visibility::default(),
             children![(
                 // Sprite (must be rotated separately from the collider)
-                Sprite3dBuilder {
+                Sprite {
                     image: assets.sprites.guardian_image.clone(),
-                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
-                    double_sided: false,
-                    unlit: true,
-                    ..default()
-                }
-                .bundle_with_atlas(
-                    &mut sprite3d_params,
-                    TextureAtlas {
+                    texture_atlas: Some(TextureAtlas {
                         layout: assets.sprites.sprite_layout.clone(),
                         index: 0,
-                    },
-                ),
+                    }),
+                    ..default()
+                },
+                Sprite3d {
+                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
+                    unlit: true,
+                    double_sided: false,
+                    ..default()
+                },
                 // Animation
                 animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
             )],

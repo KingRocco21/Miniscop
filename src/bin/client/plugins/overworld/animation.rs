@@ -40,15 +40,15 @@ pub fn billboard_sprites(
 pub fn animate_walk_cycles(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(&mut AnimationTimer, &mut Sprite3d)>,
+    mut query: Query<(&mut AnimationTimer, &mut Sprite)>,
     player_action: ResMut<ActionState<input::PlayerAction>>,
     assets: Res<loading::OverworldAssetCollection>,
 ) {
     let delta = time.delta();
-    for (mut timer, mut sprite_3d) in query.iter_mut() {
+    for (mut timer, mut sprite) in query.iter_mut() {
         let direction = player_action.axis_pair(&input::PlayerAction::Walk);
 
-        let atlas = sprite_3d.texture_atlas.as_mut().unwrap();
+        let atlas = sprite.texture_atlas.as_mut().unwrap();
 
         if direction.length() == 0.0 {
             // Stopped moving, so stop animation in current direction

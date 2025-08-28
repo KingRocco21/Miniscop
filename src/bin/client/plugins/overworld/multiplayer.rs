@@ -1,9 +1,9 @@
 mod netcode;
 
-use crate::plugins::overworld::{Player, animation, loading};
+use crate::plugins::overworld::{animation, loading, Player};
 use bevy::prelude::*;
 use bevy::window::WindowCloseRequested;
-use bevy_sprite3d::{Sprite3d, Sprite3dBuilder, Sprite3dParams};
+use bevy_sprite3d::Sprite3d;
 use bevy_tnua::prelude::{TnuaBuiltinWalk, TnuaController};
 use miniscop::networking::Packet;
 use netcode::connect_to_server;
@@ -153,16 +153,15 @@ pub fn read_packets(
 pub fn on_other_player_moved(
     mut commands: Commands,
     assets: Res<loading::OverworldAssetCollection>,
-    mut sprite3d_params: Sprite3dParams,
     mut player_moved: EventReader<OtherPlayerMoved>,
-    mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite3d)>,
+    mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite)>,
 ) {
     for movement in player_moved.read() {
         let mut found_player = false;
-        for (other_player, mut transform, mut sprite_3d) in query.iter_mut() {
+        for (other_player, mut transform, mut sprite) in query.iter_mut() {
             if other_player.id == movement.id {
                 transform.translation = movement.translation;
-                sprite_3d.texture_atlas.as_mut().unwrap().index = movement.animation_frame;
+                sprite.texture_atlas.as_mut().unwrap().index = movement.animation_frame;
                 found_player = true;
             }
         }
@@ -170,20 +169,20 @@ pub fn on_other_player_moved(
             commands.spawn((
                 StateScoped(MultiplayerState::Online),
                 OtherPlayer { id: movement.id },
-                Sprite3dBuilder {
+                Sprite {
                     image: assets.sprites.other_player_image.clone(),
-                    pixels_per_metre: loading::SPRITE_PIXELS_PER_METER,
-                    double_sided: false,
-                    unlit: true,
-                    ..default()
-                }
-                .bundle_with_atlas(
-                    &mut sprite3d_params,
-                    TextureAtlas {
+                    texture_atlas: Some(TextureAtlas {
                         layout: assets.sprites.sprite_layout.clone(),
-                        index: movement.animation_frame,
-                    },
-                ),
+                        index: 0,
+                    }),
+                    ..default()
+                },
+                Sprite3d {
+                    pixels_per_metre: loading::SPRITE_PIXELS_PER_METER,
+                    unlit: true,
+                    double_sided: false,
+                    ..default()
+                },
                 Transform::from_translation(movement.translation),
             ));
         }
@@ -211,7 +210,7 @@ pub fn send_current_position(
     connection: Res<ServerConnection>,
     mut next_state: ResMut<NextState<MultiplayerState>>,
     position: Single<(&TnuaController, &Transform), With<Player>>,
-    sprite_3d: Single<&Sprite3d, With<animation::AnimationTimer>>,
+    sprite: Single<&Sprite, With<animation::AnimationTimer>>,
 ) {
     let (controller, transform) = position.into_inner();
     let (_, walk_state) = controller
@@ -219,7 +218,7 @@ pub fn send_current_position(
         .expect("The player should have a walk state.");
     let velocity = walk_state.running_velocity;
 
-    let sprite_3d = sprite_3d.into_inner();
+    let sprite = sprite.into_inner();
 
     if velocity.length() > 0.001 {
         let packet = Packet::PlayerMovement {
@@ -227,7 +226,7 @@ pub fn send_current_position(
             x: transform.translation.x,
             y: transform.translation.y,
             z: transform.translation.z,
-            animation_frame: u8::try_from(sprite_3d.texture_atlas.as_ref().unwrap().index)
+            animation_frame: u8::try_from(sprite.texture_atlas.as_ref().unwrap().index)
                 .expect("Sprite atlas index should fit within 0 and 255"),
         };
         match connection.to_client.try_send(packet) {
