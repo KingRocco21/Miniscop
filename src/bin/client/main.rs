@@ -5,6 +5,7 @@ use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
 use bevy::prelude::*;
 use bevy::text::{FontSmoothing, LineHeight};
 use bevy::window::{CursorOptions, PresentMode, WindowResolution};
+use bevy_skein::SkeinPlugin;
 use bevy_sprite3d::Sprite3dPlugin;
 use std::time::Duration;
 
@@ -34,10 +35,10 @@ fn main() {
                         //     MonitorSelection::Primary,
                         //     VideoModeSelection::Current,
                         // ),
-                        resolution: WindowResolution::new(960.0, 720.0), // Change back to 720.0 by 540.0 after you finish comparing with Petscop
+                        resolution: WindowResolution::new(960.0, 720.0), // Petscop: 960x720. Actual PS1: 720x540.
                         resizable: false,
-                        title: "Miniscop: Investigate Together!".to_string(),
-                        name: Some("Miniscop".to_string()),
+                        title: String::from("Miniscop: Investigate Together!"),
+                        name: Some(String::from("Miniscop")),
                         prevent_default_event_handling: true,
                         fit_canvas_to_parent: true,
                         ..default()
@@ -45,6 +46,7 @@ fn main() {
                     ..default()
                 })
                 .set(ImagePlugin::default_nearest()),
+            SkeinPlugin::default(),
             Sprite3dPlugin,
             FpsOverlayPlugin {
                 config: FpsOverlayConfig {

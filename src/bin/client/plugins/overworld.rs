@@ -35,6 +35,8 @@ impl Plugin for OverworldPlugin {
             InputManagerPlugin::<input::PlayerAction>::default(),
             InputManagerPlugin::<input::TextAction>::default(),
         ))
+        .register_type::<animation::InitialTransform>()
+        .register_type::<animation::AnimatedInteractionPromptState>()
         .init_resource::<ActionState<input::PlayerAction>>()
         .init_resource::<ActionState<input::TextAction>>()
         .insert_resource(input::PlayerAction::default_input_map())

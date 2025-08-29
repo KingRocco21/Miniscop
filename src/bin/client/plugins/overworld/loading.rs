@@ -153,13 +153,6 @@ pub fn setup_overworld(
     ));
 }
 
-// Blender custom properties
-#[derive(Serialize, Deserialize, Debug)]
-struct BlenderPhysicsProperties {
-    rigid_body: RigidBody,
-    collider_constructor: ColliderConstructor,
-}
-
 /// If you add "Interaction" as a custom property to an object, you MUST nest an "Animated Interaction Prompt" object inside of it as well.
 #[derive(Serialize, Deserialize, Debug)]
 struct BlenderInteractionProperties {
@@ -184,7 +177,6 @@ fn on_level_spawn(
     mut transforms: Query<&mut Transform>,
     names: Query<&Name>,
     mut app_exit: EventWriter<AppExit>,
-    gltf_mesh_extras: Query<&GltfMeshExtras>,
 ) {
     for blender_object_or_mesh in children.iter_descendants(trigger.target()) {
         // Check objects for custom properties
@@ -276,24 +268,6 @@ fn on_level_spawn(
                 error!(
                     "Found object properties that could not be deserialized into any known type: {:?}",
                     object_properties
-                );
-            }
-        }
-        // Check meshes for custom properties
-        else if let Ok(mesh_properties) = gltf_mesh_extras.get(blender_object_or_mesh) {
-            if let Ok(physics_properties) =
-                serde_json::from_str::<BlenderPhysicsProperties>(&mesh_properties.value)
-            {
-                commands.entity(blender_object_or_mesh).insert((
-                    physics_properties.rigid_body,
-                    physics_properties.collider_constructor,
-                ));
-            }
-            // May add additional types of mesh properties in the future.
-            else {
-                error!(
-                    "Found mesh properties that could not be deserialized into any known type: {:?}",
-                    mesh_properties
                 );
             }
         }
