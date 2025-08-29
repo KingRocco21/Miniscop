@@ -16,6 +16,7 @@ anyhow = "1.0"
 bitcode = "0.6"
 # Client
 bevy = { version = "0.16", features = ["bevy_dev_tools"] }
+bevy_asset_loader = { version = "0.23.0", features = ["2d"] }
 bevy_sprite3d = "6.0"
 avian3d = { version = "0.3", features = ["serialize"] }
 bevy-tnua = "0.24"

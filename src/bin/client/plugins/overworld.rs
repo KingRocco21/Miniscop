@@ -7,6 +7,7 @@ use crate::AppState;
 use avian3d::prelude::*;
 use avian3d::PhysicsPlugins;
 use bevy::prelude::*;
+use bevy_asset_loader::prelude::*;
 use bevy_tnua::prelude::TnuaControllerPlugin;
 use bevy_tnua::TnuaUserControlsSystemSet;
 use bevy_tnua_avian3d::TnuaAvian3dPlugin;
@@ -19,7 +20,7 @@ use multiplayer::MultiplayerState;
 #[states(scoped_entities)]
 enum OverworldState {
     #[default]
-    LoadingScreen,
+    Loading,
     InGame,
 }
 
@@ -39,6 +40,14 @@ impl Plugin for OverworldPlugin {
         .insert_resource(input::PlayerAction::default_input_map())
         .insert_resource(input::TextAction::default_input_map())
         .add_sub_state::<OverworldState>()
+        .add_loading_state(
+            LoadingState::new(OverworldState::Loading)
+                .load_collection::<loading::LevelAssets>()
+                .load_collection::<loading::SpriteAssets>()
+                .load_collection::<loading::SoundAssets>()
+                .load_collection::<loading::SongAssets>()
+                .continue_to_state(OverworldState::InGame),
+        )
         .init_state::<MultiplayerState>()
         .add_event::<multiplayer::OtherPlayerMoved>()
         .add_event::<multiplayer::OtherPlayerDisconnected>()
@@ -47,12 +56,10 @@ impl Plugin for OverworldPlugin {
             |mut text_action: ResMut<ActionState<input::TextAction>>| text_action.disable(),
         )
         .add_systems(
-            OnEnter(AppState::Overworld),
-            (loading::setup_overworld, multiplayer::setup_client_runtime),
-        )
-        .add_systems(
-            Update,
-            loading::finish_loading.run_if(in_state(OverworldState::LoadingScreen)),
+            OnEnter(OverworldState::InGame),
+            (
+                loading::setup_overworld, /*multiplayer::setup_client_runtime*/
+            ),
         )
         .add_systems(
             FixedFirst,

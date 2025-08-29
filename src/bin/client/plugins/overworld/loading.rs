@@ -7,6 +7,7 @@ use bevy::audio::{PlaybackMode, Volume};
 use bevy::gltf::GltfMeshExtras;
 use bevy::prelude::*;
 use bevy::scene::SceneInstanceReady;
+use bevy_asset_loader::prelude::AssetCollection;
 use bevy_sprite3d::Sprite3d;
 use bevy_tnua::controller::TnuaController;
 use bevy_tnua_avian3d::TnuaAvian3dSensorShape;
@@ -21,216 +22,135 @@ pub const STARTING_PLAYER_TRANSLATION: Vec3 = Vec3::new(-2.0, input::FLOAT_HEIGH
 pub const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 5.0, 10.0);
 
 // Resources
-#[derive(Resource)]
-pub struct OverworldAssetCollection {
-    pub level: Handle<Scene>,
-    pub sprites: OverworldSprites,
-    pub sfx: OverworldSoundEffects,
-    pub songs: OverworldSongs,
+#[derive(AssetCollection, Resource)]
+pub struct LevelAssets {
+    #[asset(path = "overworld/3d/Gift_Plane.glb#Scene0")]
+    pub gift_plane: Handle<Scene>,
 }
-pub struct OverworldSprites {
+#[derive(AssetCollection, Resource)]
+pub struct SpriteAssets {
+    #[asset(path = "overworld/2d/guardian.png")]
     guardian_image: Handle<Image>,
+    #[asset(path = "overworld/2d/other_player.png")]
     pub other_player_image: Handle<Image>,
+    #[asset(texture_atlas_layout(tile_size_x = 64, tile_size_y = 64, columns = 5, rows = 5))]
     pub sprite_layout: Handle<TextureAtlasLayout>,
+    #[asset(path = "overworld/2d/text_box.png")]
     pub text_box_image: Handle<Image>,
+    #[asset(path = "overworld/2d/text_box_arrow.png")]
     pub text_box_arrow_image: Handle<Image>,
-    pub text_box_slicer: TextureSlicer,
 }
-pub struct OverworldSoundEffects {
+#[derive(AssetCollection, Resource)]
+pub struct SoundAssets {
+    #[asset(path = "overworld/sounds/walking_1.ogg")]
     pub walking_1: Handle<AudioSource>,
+    #[asset(path = "overworld/sounds/walking_2.ogg")]
     pub walking_2: Handle<AudioSource>,
+    #[asset(path = "overworld/sounds/approaching_interactable.ogg")]
     pub approaching_interactable: Handle<AudioSource>,
+    #[asset(path = "overworld/sounds/dialogue_start.ogg")]
     pub dialogue_start: Handle<AudioSource>,
+    #[asset(path = "overworld/sounds/dialogue.ogg")]
     pub dialogue: Handle<AudioSource>,
+    #[asset(path = "overworld/sounds/dialogue_end.ogg")]
     pub dialogue_end: Handle<AudioSource>,
 }
-pub struct OverworldSongs {
+#[derive(AssetCollection, Resource)]
+pub struct SongAssets {
+    #[asset(path = "overworld/sounds/gift_plane.ogg")]
     pub gift_plane: Handle<AudioSource>,
-}
-
-impl OverworldAssetCollection {
-    fn all_assets_are_loaded(&self, asset_server: &Res<AssetServer>) -> bool {
-        asset_server
-            .get_load_state(self.level.id())
-            .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sprites.guardian_image.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sprites.other_player_image.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sprites.text_box_image.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sprites.text_box_arrow_image.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sfx.walking_1.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sfx.walking_2.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sfx.dialogue_start.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sfx.approaching_interactable.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sfx.dialogue.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.sfx.dialogue_end.id())
-                .is_some_and(|state| state.is_loaded())
-            && asset_server
-                .get_load_state(self.songs.gift_plane.id())
-                .is_some_and(|state| state.is_loaded())
-    }
 }
 
 // Systems
 pub fn setup_overworld(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    levels: Res<LevelAssets>,
+    sprites: Res<SpriteAssets>,
 ) {
-    // Start loading assets
-    commands.insert_resource(OverworldAssetCollection {
-        level: asset_server
-            .load(GltfAssetLabel::Scene(0).from_asset("overworld/3d/Gift_Plane.glb")),
-        sprites: OverworldSprites {
-            guardian_image: asset_server.load("overworld/2d/guardian.png"),
-            other_player_image: asset_server.load("overworld/2d/other_player.png"),
-            sprite_layout: texture_atlas_layouts.add(TextureAtlasLayout::from_grid(
-                UVec2::splat(64),
-                5,
-                5,
-                None,
-                None,
-            )),
-            text_box_image: asset_server.load("overworld/2d/text_box.png"),
-            text_box_arrow_image: asset_server.load("overworld/2d/text_box_arrow.png"),
-            text_box_slicer: TextureSlicer {
-                border: BorderRect {
-                    left: 8.0,
-                    bottom: 7.0,
-                    right: 8.0,
-                    top: 7.0,
-                },
-                max_corner_scale: 3.0,
+    // Spawn floor
+    commands.spawn((
+        StateScoped(AppState::Overworld),
+        Transform::from_xyz(0.0, -0.5, 0.0),
+        RigidBody::Static,
+        Collider::cuboid(1000.0, 1.0, 1000.0),
+    ));
+    // Spawn level
+    commands
+        .spawn((
+            StateScoped(AppState::Overworld),
+            SceneRoot(levels.gift_plane.clone()),
+            Transform::default(),
+        ))
+        .observe(on_level_spawn);
+
+    // Spawn player
+    commands.spawn((
+        StateScoped(AppState::Overworld),
+        Player,
+        Transform::from_translation(STARTING_PLAYER_TRANSLATION),
+        // Physics
+        RigidBody::Dynamic,
+        Collider::cuboid(1.0, 1.0, 1.0),
+        LockedAxes::ROTATION_LOCKED,
+        Dominance(1),
+        // Character Controller
+        TnuaController::default(),
+        TnuaAvian3dSensorShape(Collider::cuboid(0.8, 0.0, 0.8)),
+        // Fix for https://bevy.org/learn/errors/b0004/
+        Visibility::default(),
+        children![(
+            // Sprite (must be rotated separately from the collider)
+            Sprite {
+                image: sprites.guardian_image.clone(),
+                texture_atlas: Some(TextureAtlas {
+                    layout: sprites.sprite_layout.clone(),
+                    index: 0,
+                }),
                 ..default()
             },
-        },
-        sfx: OverworldSoundEffects {
-            walking_1: asset_server.load("overworld/sounds/walking_1.ogg"),
-            walking_2: asset_server.load("overworld/sounds/walking_2.ogg"),
-            approaching_interactable: asset_server
-                .load("overworld/sounds/approaching_interactable.ogg"),
-            dialogue_start: asset_server.load("overworld/sounds/dialogue_start.ogg"),
-            dialogue: asset_server.load("overworld/sounds/dialogue.ogg"),
-            dialogue_end: asset_server.load("overworld/sounds/dialogue_end.ogg"),
-        },
-        songs: OverworldSongs {
-            gift_plane: asset_server.load("overworld/sounds/gift_plane.ogg"),
-        },
-    });
-}
-
-pub fn finish_loading(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    assets: Res<OverworldAssetCollection>,
-    mut next_state: ResMut<NextState<OverworldState>>,
-) {
-    if assets.all_assets_are_loaded(&asset_server) {
-        // Spawn floor
-        commands.spawn((
-            StateScoped(AppState::Overworld),
-            Transform::from_xyz(0.0, -0.5, 0.0),
-            RigidBody::Static,
-            Collider::cuboid(1000.0, 1.0, 1000.0),
-        ));
-        // Spawn level
-        commands
-            .spawn((
-                StateScoped(AppState::Overworld),
-                SceneRoot(assets.level.clone()),
-                Transform::default(),
-            ))
-            .observe(on_level_spawn);
-
-        // Spawn player
-        commands.spawn((
-            StateScoped(AppState::Overworld),
-            Player,
-            Transform::from_translation(STARTING_PLAYER_TRANSLATION),
-            // Physics
-            RigidBody::Dynamic,
-            Collider::cuboid(1.0, 1.0, 1.0),
-            LockedAxes::ROTATION_LOCKED,
-            Dominance(1),
-            // Character Controller
-            TnuaController::default(),
-            TnuaAvian3dSensorShape(Collider::cuboid(0.8, 0.0, 0.8)),
-            // Fix for https://bevy.org/learn/errors/b0004/
-            Visibility::default(),
-            children![(
-                // Sprite (must be rotated separately from the collider)
-                Sprite {
-                    image: assets.sprites.guardian_image.clone(),
-                    texture_atlas: Some(TextureAtlas {
-                        layout: assets.sprites.sprite_layout.clone(),
-                        index: 0,
-                    }),
-                    ..default()
-                },
-                Sprite3d {
-                    pixels_per_metre: SPRITE_PIXELS_PER_METER,
-                    unlit: true,
-                    double_sided: false,
-                    ..default()
-                },
-                // Animation
-                animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
-            )],
-        ));
-
-        // Spawn music
-        // commands.spawn((
-        //     StateScoped(AppState::Overworld),
-        //     AudioPlayer::new(assets.songs.gift_plane.clone()),
-        //     PlaybackSettings {
-        //         mode: PlaybackMode::Loop,
-        //         volume: Volume::Linear(0.5),
-        //         ..default()
-        //     },
-        // ));
-
-        // Spawn camera
-        commands.spawn((
-            StateScoped(AppState::Overworld),
-            Camera3d::default(),
-            Camera {
-                clear_color: ClearColorConfig::Custom(Color::WHITE),
+            Sprite3d {
+                pixels_per_metre: SPRITE_PIXELS_PER_METER,
+                unlit: true,
+                double_sided: false,
                 ..default()
             },
-            Transform::from_translation(STARTING_CAMERA_TRANSLATION)
-                .looking_at(Vec3::new(STARTING_CAMERA_TRANSLATION.x, 0.0, 0.0), Vec3::Y),
-            AmbientLight {
-                brightness: 1000.0,
-                ..default()
-            },
-        ));
+            // Animation
+            animation::AnimationTimer(Timer::from_seconds(0.15, TimerMode::Repeating)),
+        )],
+    ));
 
-        commands.spawn((
-            StateScoped(AppState::Overworld),
-            DirectionalLight::default(),
-            Transform::from_rotation(Quat::from_rotation_y(PI / 4.0)),
-        ));
+    // Spawn music
+    // commands.spawn((
+    //     StateScoped(AppState::Overworld),
+    //     AudioPlayer::new(songs.gift_plane.clone()),
+    //     PlaybackSettings {
+    //         mode: PlaybackMode::Loop,
+    //         volume: Volume::Linear(0.5),
+    //         ..default()
+    //     },
+    // ));
 
-        next_state.set(OverworldState::InGame);
-    }
+    // Spawn camera
+    commands.spawn((
+        StateScoped(AppState::Overworld),
+        Camera3d::default(),
+        Camera {
+            clear_color: ClearColorConfig::Custom(Color::WHITE),
+            ..default()
+        },
+        Transform::from_translation(STARTING_CAMERA_TRANSLATION)
+            .looking_at(Vec3::new(STARTING_CAMERA_TRANSLATION.x, 0.0, 0.0), Vec3::Y),
+        AmbientLight {
+            brightness: 1000.0,
+            ..default()
+        },
+    ));
+
+    commands.spawn((
+        StateScoped(AppState::Overworld),
+        DirectionalLight::default(),
+        Transform::from_rotation(Quat::from_rotation_y(PI / 4.0)),
+    ));
 }
 
 // Blender custom properties

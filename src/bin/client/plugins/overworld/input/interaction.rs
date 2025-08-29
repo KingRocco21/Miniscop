@@ -1,7 +1,6 @@
 use crate::plugins::overworld::animation::AnimationTimer;
 use crate::plugins::overworld::input::{PlayerAction, TextAction};
-use crate::plugins::overworld::loading::OverworldAssetCollection;
-use crate::plugins::overworld::{animation, Player};
+use crate::plugins::overworld::{animation, loading, Player};
 use crate::{AppState, PetscopFont};
 use avian3d::prelude::{OnCollisionEnd, OnCollisionStart};
 use bevy::audio::{PlaybackMode, Volume};
@@ -31,14 +30,14 @@ pub struct InteractableWithPrompt(pub Entity);
 pub fn when_approaching_interactable(
     trigger: Trigger<OnCollisionStart>,
     mut commands: Commands,
-    assets: Res<OverworldAssetCollection>,
+    sounds: Res<loading::SoundAssets>,
     prompt_query: Query<&InteractableWithPrompt>,
     mut prompt_state_query: Query<&mut animation::AnimatedInteractionPromptState>,
 ) {
     // Play sound
     commands.spawn((
         StateScoped(AppState::Overworld),
-        AudioPlayer::new(assets.sfx.approaching_interactable.clone()),
+        AudioPlayer::new(sounds.approaching_interactable.clone()),
         PlaybackSettings {
             mode: PlaybackMode::Despawn,
             ..default()
@@ -104,7 +103,8 @@ pub fn interact(
     mut player_action: ResMut<ActionState<PlayerAction>>,
     interactions: Query<&OverworldInteraction>,
     mut commands: Commands,
-    assets: Res<OverworldAssetCollection>,
+    sprites: Res<loading::SpriteAssets>,
+    sounds: Res<loading::SoundAssets>,
 ) {
     let within_range_of = within_range_of.into_inner();
 
@@ -139,8 +139,17 @@ pub fn interact(
                         ..default()
                     },
                     ImageNode {
-                        image: assets.sprites.text_box_image.clone(),
-                        image_mode: NodeImageMode::Sliced(assets.sprites.text_box_slicer.clone()),
+                        image: sprites.text_box_image.clone(),
+                        image_mode: NodeImageMode::Sliced(TextureSlicer {
+                            border: BorderRect {
+                                left: 8.0,
+                                bottom: 7.0,
+                                right: 8.0,
+                                top: 7.0,
+                            },
+                            max_corner_scale: 3.0,
+                            ..default()
+                        }),
                         ..default()
                     },
                     TextBoxNode,
@@ -163,7 +172,7 @@ pub fn interact(
 
                 let arrow_node = (
                     TextBoxArrowNode,
-                    ImageNode::new(assets.sprites.text_box_arrow_image.clone()),
+                    ImageNode::new(sprites.text_box_arrow_image.clone()),
                     Node {
                         position_type: PositionType::Absolute,
                         left: Val::Vw(75.0),
@@ -179,7 +188,7 @@ pub fn interact(
                 // (It needs to be despawned when the interaction ends)
                 let dialogue_sfx = (
                     DialogueSfx,
-                    AudioPlayer::new(assets.sfx.dialogue.clone()),
+                    AudioPlayer::new(sounds.dialogue.clone()),
                     PlaybackSettings {
                         mode: PlaybackMode::Loop,
                         volume: Volume::Linear(0.5),
@@ -199,7 +208,7 @@ pub fn interact(
                 // Play dialogue start sound
                 commands.spawn((
                     StateScoped(AppState::Overworld),
-                    AudioPlayer::new(assets.sfx.dialogue_start.clone()),
+                    AudioPlayer::new(sounds.dialogue_start.clone()),
                     PlaybackSettings {
                         mode: PlaybackMode::Despawn,
                         volume: Volume::Linear(0.5),
@@ -279,7 +288,7 @@ pub fn proceed_text(
     dialogue_sfx: Single<&AudioSink, With<DialogueSfx>>,
     arrow_node: Single<(&mut Visibility, &mut AnimationTimer), With<TextBoxArrowNode>>,
     petscop_font: Res<PetscopFont>,
-    assets: Res<OverworldAssetCollection>,
+    sounds: Res<loading::SoundAssets>,
 ) {
     // This prevents the player's interaction from opening the text box AND skipping to the end of the paragraph on the same frame.
     if text_action.disabled() {
@@ -304,7 +313,7 @@ pub fn proceed_text(
             // Play dialogue end sound
             commands.spawn((
                 StateScoped(AppState::Overworld),
-                AudioPlayer::new(assets.sfx.dialogue_end.clone()),
+                AudioPlayer::new(sounds.dialogue_end.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
                     volume: Volume::Linear(0.5),
@@ -322,7 +331,7 @@ pub fn proceed_text(
             // Play dialogue start sound
             commands.spawn((
                 StateScoped(AppState::Overworld),
-                AudioPlayer::new(assets.sfx.dialogue_start.clone()),
+                AudioPlayer::new(sounds.dialogue_start.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
                     volume: Volume::Linear(0.5),

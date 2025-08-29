@@ -152,7 +152,7 @@ pub fn read_packets(
 /// This system updates the transforms of other players, and spawns the player if they don't exist yet.
 pub fn on_other_player_moved(
     mut commands: Commands,
-    assets: Res<loading::OverworldAssetCollection>,
+    sprites: Res<loading::SpriteAssets>,
     mut player_moved: EventReader<OtherPlayerMoved>,
     mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite)>,
 ) {
@@ -170,9 +170,9 @@ pub fn on_other_player_moved(
                 StateScoped(MultiplayerState::Online),
                 OtherPlayer { id: movement.id },
                 Sprite {
-                    image: assets.sprites.other_player_image.clone(),
+                    image: sprites.other_player_image.clone(),
                     texture_atlas: Some(TextureAtlas {
-                        layout: assets.sprites.sprite_layout.clone(),
+                        layout: sprites.sprite_layout.clone(),
                         index: 0,
                     }),
                     ..default()
