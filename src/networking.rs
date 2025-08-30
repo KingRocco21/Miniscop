@@ -1,13 +1,21 @@
 use bitcode::{decode, encode, Buffer, Decode, Encode};
 use quinn::{RecvStream, SendStream};
 
+/// Bitcode-encoded packet types to be sent and received by the client and server.
+///
+/// Read each enum variant for more information.
 #[derive(Encode, Decode, Debug, Copy, Clone, PartialEq)]
 pub enum Packet {
-    /// Client will be kicked if it sends this.
-    /// Its current purpose is to signal to the client that it can start sending packets.
-    ClientConnect,
-    /// Client will be disconnected if they send this regardless of the ID inside, so they might as well send None.
+    /// Server should send this upon a successful connection to signal to the client that it can start sending packets.
+    ///
+    /// Client should be kicked if it sends this.
+    ServerReady,
+    /// Server should send Some() whenever another client disconnects. Server should never send None.
+    ///
+    /// Client should send None when it wants to disconnect. Client should never send Some().
     ClientDisconnect(Option<u64>),
+    /// Server should always send an id.
+    ///
     /// Client should send None for id because it doesn't know its own id.
     PlayerMovement {
         id: Option<u64>,

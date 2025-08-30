@@ -113,7 +113,7 @@ async fn handle_connection(
     // Tell the client its ID
     let client_id = connection.stable_id() as u64;
     let send = connection.open_uni().await?;
-    let packet = Packet::ClientConnect;
+    let packet = Packet::ServerReady;
     send_packet(send, packet, None).await?;
 
     // Start awaiting packets.
@@ -123,7 +123,7 @@ async fn handle_connection(
         let recv = connection.accept_uni().await?;
         let packet = receive_packet(recv, Some(&mut recv_buffer)).await?;
         match packet {
-            Packet::ClientConnect => {
+            Packet::ServerReady => {
                 return Err(anyhow::anyhow!(
                     "Client tried to send Packet::ClientConnect."
                 ));
@@ -170,7 +170,7 @@ async fn receive_broadcasts(
     loop {
         match from_all_connections.recv().await {
             Ok(packet) => match packet {
-                Packet::ClientConnect => {
+                Packet::ServerReady => {
                     panic!(
                         "Server broadcasted a client connect. This should never happen. Please report this to the dev."
                     )

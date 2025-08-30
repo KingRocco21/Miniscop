@@ -156,7 +156,7 @@ pub fn read_packets(
     // let time = Instant::now();
     while let Ok(packet) = connection.from_server.try_recv() {
         match packet {
-            Packet::ClientConnect => next_state.set(MultiplayerState::Online),
+            Packet::ServerReady => next_state.set(MultiplayerState::Online),
             Packet::ClientDisconnect(id) => match id {
                 None => next_state.set(MultiplayerState::Offline),
                 Some(id) => {

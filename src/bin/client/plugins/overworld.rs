@@ -37,7 +37,7 @@ impl Plugin for OverworldPlugin {
             animation::AnimationPlugin,
             input::InputPlugin,
             loading::LoadingPlugin,
-            multiplayer::MultiplayerPlugin,
+            // multiplayer::MultiplayerPlugin,
         ))
         .add_sub_state::<OverworldState>()
         .add_systems(
