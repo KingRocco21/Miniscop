@@ -1,19 +1,12 @@
-use crate::plugins::overworld::input::interaction;
-use crate::plugins::overworld::{animation, input, OverworldState, Player};
+use crate::plugins::overworld::{animation, input, Player};
 use crate::AppState;
 use avian3d::prelude::*;
-use bevy::app::AppExit;
-use bevy::audio::{PlaybackMode, Volume};
-use bevy::gltf::GltfMeshExtras;
 use bevy::prelude::*;
-use bevy::scene::SceneInstanceReady;
 use bevy_asset_loader::prelude::AssetCollection;
 use bevy_sprite3d::Sprite3d;
 use bevy_tnua::controller::TnuaController;
 use bevy_tnua_avian3d::TnuaAvian3dSensorShape;
-use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
-use tracing::error;
 
 // Constants
 /// Note: Based on current guardian sprite
@@ -75,13 +68,11 @@ pub fn setup_overworld(
         Collider::cuboid(1000.0, 1.0, 1000.0),
     ));
     // Spawn level
-    commands
-        .spawn((
-            StateScoped(AppState::Overworld),
-            SceneRoot(levels.gift_plane.clone()),
-            Transform::default(),
-        ))
-        .observe(on_level_spawn);
+    commands.spawn((
+        StateScoped(AppState::Overworld),
+        SceneRoot(levels.gift_plane.clone()),
+        Transform::default(),
+    ));
 
     // Spawn player
     commands.spawn((
@@ -153,123 +144,28 @@ pub fn setup_overworld(
     ));
 }
 
-/// If you add "Interaction" as a custom property to an object, you MUST nest an "Animated Interaction Prompt" object inside of it as well.
-#[derive(Serialize, Deserialize, Debug)]
-struct BlenderInteractionProperties {
-    interaction: BlenderInteraction,
-    text: Option<String>,
-}
-
-/// You cannot add the data to these enum variants because Blender does not have support for it.
-/// Instead, each BlenderInteraction expects its corresponding BlenderInteractionProperties value to be Some().
-#[derive(Serialize, Deserialize, Debug)]
-enum BlenderInteraction {
-    Text,
-}
-
-/// On level spawn, add components to Blender meshes and spawn new entities for Blender objects based on their custom properties.
-/// It would be nice to use Blenvy for this, but it's out of date.
-fn on_level_spawn(
-    trigger: Trigger<SceneInstanceReady>,
+/// We must observe when Skein spawns the interaction sensor so we can add collision observers.
+pub fn on_add_interaction(
+    trigger: Trigger<OnAdd, input::interaction::OverworldInteraction>,
     mut commands: Commands,
-    children: Query<&Children>,
-    gltf_extras: Query<&GltfExtras>,
-    mut transforms: Query<&mut Transform>,
-    names: Query<&Name>,
-    mut app_exit: EventWriter<AppExit>,
 ) {
-    for blender_object_or_mesh in children.iter_descendants(trigger.target()) {
-        // Check objects for custom properties
-        if let Ok(object_properties) = gltf_extras.get(blender_object_or_mesh) {
-            if let Ok(interaction_properties) =
-                serde_json::from_str::<BlenderInteractionProperties>(&object_properties.value)
-            {
-                // Regardless of the type of interactable, we first need to add a sensor around the object.
-                // Here's how interactables work:
-                // 1. Get the translation of the interactable
-                let interactable_object = commands.entity(blender_object_or_mesh);
-                let sensor_translation = transforms
-                    .get(interactable_object.id())
-                    .expect("The interactable object should have a transform already")
-                    .translation;
+    commands
+        .entity(trigger.target())
+        .observe(input::interaction::when_approaching_interactable)
+        .observe(input::interaction::when_leaving_interactable);
+}
 
-                // 2. Attempt to find the interactable's interaction prompt
-                let mut sensor_result: Option<Entity> = None;
-                for nested_object in children.iter_descendants(interactable_object.id()) {
-                    if let Ok(name) = names.get(nested_object)
-                        && name.as_str() == "Animated Interaction Prompt"
-                    {
-                        // 3. Spawn a sensor that is linked to the interaction prompt.
-                        // You can't add the sensor as a child to the "interactable_object" or else it will disappear for some reason,
-                        // and you can't insert these components into the "interactable_object" or else its transform will change,
-                        // so we must spawn it as a new entity.
-                        let sensor = commands
-                            .spawn((
-                                StateScoped(AppState::Overworld),
-                                Transform::from_translation(sensor_translation),
-                                RigidBody::Static,
-                                Collider::cuboid(3.0, 3.0, 3.0),
-                                Sensor,
-                                CollisionEventsEnabled,
-                                interaction::InteractableWithPrompt(nested_object),
-                            ))
-                            .observe(interaction::when_approaching_interactable)
-                            .observe(interaction::when_leaving_interactable)
-                            .id();
-
-                        // 4. Hide the interaction prompt by default
-                        let mut prompt_transform = transforms
-                            .get_mut(nested_object)
-                            .expect("The interaction prompt should have a transform already");
-                        prompt_transform.scale = Vec3::ZERO;
-
-                        // 5. Add animation components to the interaction prompt so it can bob up and down.
-                        commands.entity(nested_object).insert((
-                            // Make the interaction prompt invisible until it is approached.
-                            animation::AnimatedInteractionPromptState::Hidden,
-                            // Clone the initial translation and rotation so the transform can be modified freely.
-                            animation::InitialTransform(prompt_transform.clone()),
-                        ));
-                        // Only one sensor and interaction prompt is allowed per interactable.
-                        // If multiple prompts are nested in the same object in Blender, only the first one will be used.
-                        sensor_result = Some(sensor);
-                        break;
-                    }
-                }
-                // If a sensor was created, we can continue.
-                match sensor_result {
-                    None => {
-                        error!(
-                            "\"Animated Interaction Prompt\" was not nested in the interactable object {:?}. The level cannot be loaded properly.",
-                            names.get(blender_object_or_mesh)
-                        );
-                        app_exit.write(AppExit::from_code(1));
-                    }
-                    Some(sensor) => match interaction_properties.interaction {
-                        BlenderInteraction::Text => match interaction_properties.text {
-                            None => {
-                                error!(
-                                    "A text interaction was added to the object {:?}, but no text property is present. The level cannot be loaded properly.",
-                                    names.get(blender_object_or_mesh)
-                                );
-                                app_exit.write(AppExit::from_code(1));
-                            }
-                            Some(text) => {
-                                commands
-                                    .entity(sensor)
-                                    .insert(interaction::OverworldInteraction::Text(text));
-                            }
-                        },
-                    },
-                }
-            }
-            // May add additional types of object properties in the future.
-            else {
-                error!(
-                    "Found object properties that could not be deserialized into any known type: {:?}",
-                    object_properties
-                );
-            }
-        }
-    }
+/// We must observe when Skein spawns the interaction prompt so we can hide it by default.
+pub fn on_add_animation_prompt(
+    trigger: Trigger<OnAdd, animation::AnimatedInteractionPromptState>,
+    mut transform_query: Query<&mut Transform>,
+    mut commands: Commands,
+) {
+    let mut transform = transform_query
+        .get_mut(trigger.target())
+        .expect("Transform not present, please report to dev!");
+    transform.scale = Vec3::ZERO;
+    commands
+        .entity(trigger.target())
+        .insert(animation::InitialTransform(transform.clone()));
 }

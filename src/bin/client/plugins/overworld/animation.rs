@@ -11,12 +11,10 @@ use bevy_sprite3d::Sprite3d;
 use leafwing_input_manager::prelude::ActionState;
 
 // Components
+/// When inserting this component in Blender, keep in mind that
 #[derive(Component, Reflect, Deref, DerefMut)]
 #[component(immutable)]
 #[reflect(Component)]
-/// An immutable copy of the entity's original transform.
-///
-/// Useful for animating the actual transform.
 pub struct InitialTransform(pub Transform);
 #[derive(Component, Reflect, Eq, PartialEq, Copy, Clone)]
 #[reflect(Component)]

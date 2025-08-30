@@ -11,8 +11,9 @@ use std::time::Duration;
 use unicode_segmentation::UnicodeSegmentation;
 
 /// This component is given to interactable objects created in blender.
-#[derive(Component, Clone)]
+#[derive(Component, Reflect, Clone)]
 #[component(immutable)]
+#[reflect(Component)]
 pub enum OverworldInteraction {
     Text(String),
 }
@@ -22,16 +23,11 @@ pub enum OverworldInteraction {
 #[component(immutable)]
 pub struct WithinRangeOfInteractable(pub Entity);
 
-/// This component belongs to interaction sensors, and contains the ID of its interaction prompt.
-#[derive(Component, Debug)]
-#[component(immutable)]
-pub struct InteractableWithPrompt(pub Entity);
-
 pub fn when_approaching_interactable(
     trigger: Trigger<OnCollisionStart>,
     mut commands: Commands,
     sounds: Res<loading::SoundAssets>,
-    prompt_query: Query<&InteractableWithPrompt>,
+    children_query: Query<&Children>,
     mut prompt_state_query: Query<&mut animation::AnimatedInteractionPromptState>,
 ) {
     // Play sound
@@ -44,44 +40,36 @@ pub fn when_approaching_interactable(
         },
     ));
 
-    // Get the prompt entity from the trigger target
-    let prompt_entity = prompt_query
-        .get(trigger.target())
-        .expect("The sensor should have an InteractableWithPrompt component")
-        .0;
-    // Change the AnimatedInteractionPromptState of the prompt entity
-    let mut prompt_state = prompt_state_query
-        .get_mut(prompt_entity)
-        .expect("The interaction prompt should have an AnimatedInteractionPromptState component");
-    *prompt_state = animation::AnimatedInteractionPromptState::Growing;
-
-    // Add the "WithinRangeOfInteractable" component to the player
+    // Add "WithinRangeOfInteractable" to player
     commands
         .entity(trigger.collider)
         .insert(WithinRangeOfInteractable(trigger.target()));
+
+    // Change the AnimatedInteractionPromptState of the prompt entity
+    for child in children_query.iter_descendants(trigger.target()) {
+        if let Ok(mut interaction) = prompt_state_query.get_mut(child) {
+            *interaction = animation::AnimatedInteractionPromptState::Growing;
+        }
+    }
 }
 
 pub fn when_leaving_interactable(
     trigger: Trigger<OnCollisionEnd>,
     mut commands: Commands,
-    prompt_query: Query<&InteractableWithPrompt>,
+    children_query: Query<&Children>,
     mut prompt_state_query: Query<&mut animation::AnimatedInteractionPromptState>,
 ) {
-    // Get the prompt entity from the trigger target
-    let prompt_entity = prompt_query
-        .get(trigger.target())
-        .expect("The sensor should have an InteractableWithPrompt component")
-        .0;
-    // Change the "AnimatedInteractionPromptState" of the prompt entity
-    let mut prompt_state = prompt_state_query
-        .get_mut(prompt_entity)
-        .expect("The interaction prompt should have an AnimatedInteractionPromptState component");
-    *prompt_state = animation::AnimatedInteractionPromptState::Shrinking;
-
-    // Remove the "WithinRangeOfInteractable" component from the player
+    // Remove "WithinRangeOfInteractable" from player
     commands
         .entity(trigger.collider)
         .remove::<WithinRangeOfInteractable>();
+
+    // Change the AnimatedInteractionPromptState of the prompt entity
+    for child in children_query.iter_descendants(trigger.target()) {
+        if let Ok(mut interaction) = prompt_state_query.get_mut(child) {
+            *interaction = animation::AnimatedInteractionPromptState::Shrinking;
+        }
+    }
 }
 
 #[derive(Component)]
@@ -111,7 +99,7 @@ pub fn interact(
     if player_action.just_pressed(&PlayerAction::Interact) {
         let interaction = interactions
             .get(within_range_of.0)
-            .expect("Interactable entities should always have interaction data");
+            .expect("Interactable entities should always have OverworldInteraction");
 
         player_action.disable();
 
@@ -260,13 +248,10 @@ impl CompleteText {
                 else if g == "\u{2029}" {
                     CustomGrapheme::EndOfParagraph
                 } else {
-                    let grapheme = String::from(g);
-                    let color = char_color;
-                    let precedes_pause = g == "," || g == "?" || g == "!";
                     CustomGrapheme::Grapheme {
-                        grapheme,
-                        color,
-                        precedes_pause,
+                        grapheme: String::from(g),
+                        color: char_color,
+                        precedes_pause: g == "," || g == "?" || g == "!",
                     }
                 }
             })

@@ -1,3 +1,4 @@
+// Todo: Make these modules their own plugins. They don't need to be ordered between each other.
 mod animation;
 mod input;
 mod loading;
@@ -35,6 +36,7 @@ impl Plugin for OverworldPlugin {
             InputManagerPlugin::<input::PlayerAction>::default(),
             InputManagerPlugin::<input::TextAction>::default(),
         ))
+        .register_type::<input::interaction::OverworldInteraction>()
         .register_type::<animation::InitialTransform>()
         .register_type::<animation::AnimatedInteractionPromptState>()
         .init_resource::<ActionState<input::PlayerAction>>()
@@ -50,6 +52,8 @@ impl Plugin for OverworldPlugin {
                 .load_collection::<loading::SongAssets>()
                 .continue_to_state(OverworldState::InGame),
         )
+        .add_observer(loading::on_add_interaction)
+        .add_observer(loading::on_add_animation_prompt)
         .init_state::<MultiplayerState>()
         .add_event::<multiplayer::OtherPlayerMoved>()
         .add_event::<multiplayer::OtherPlayerDisconnected>()
