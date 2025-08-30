@@ -1,5 +1,5 @@
 use miniscop::networking::{receive_packet, send_packet, Packet};
-use quinn::{rustls, ClientConfig, Connection, Endpoint};
+use quinn::{ClientConfig, Connection, Endpoint};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use tokio::net::lookup_host;
 use tokio::sync::mpsc::error::TrySendError;
@@ -22,12 +22,12 @@ pub(crate) async fn connect_to_server(
         .ok_or_else(|| anyhow::anyhow!("Could not resolve the server's IP address"))?;
     info!("Connecting to {URL}");
 
-    // Rustls needs to get the computer's crypto provider first, or else Quinn will panic.
-    // https://github.com/quinn-rs/quinn/issues/2275
-    rustls::client::ClientConfig::builder();
-
     let connection = endpoint
-        .connect_with(ClientConfig::with_platform_verifier(), server_address, URL)
+        .connect_with(
+            ClientConfig::try_with_platform_verifier()?,
+            server_address,
+            URL,
+        )
         .map_err(|e| anyhow::anyhow!("Connection configuration error: {e:?}"))?
         .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to server: {e:?}"))?;

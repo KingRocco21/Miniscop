@@ -1,6 +1,6 @@
 mod netcode;
 
-use crate::plugins::overworld::{animation, loading, Player};
+use crate::plugins::overworld::{animation, loading, OverworldState, Player};
 use bevy::prelude::*;
 use bevy::window::WindowCloseRequested;
 use bevy_sprite3d::Sprite3d;
@@ -14,6 +14,38 @@ use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
+
+pub struct MultiplayerPlugin;
+impl Plugin for MultiplayerPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_state::<MultiplayerState>()
+            .add_event::<OtherPlayerMoved>()
+            .add_event::<OtherPlayerDisconnected>()
+            .add_systems(OnEnter(OverworldState::InGame), setup_client_runtime)
+            .add_systems(
+                FixedFirst,
+                (
+                    read_packets.run_if(
+                        in_state(MultiplayerState::Connecting)
+                            .or(in_state(MultiplayerState::Online)),
+                    ),
+                    (on_other_player_moved, on_other_player_disconnected)
+                        .chain()
+                        .run_if(in_state(MultiplayerState::Online)),
+                )
+                    .chain()
+                    .run_if(in_state(OverworldState::InGame)),
+            )
+            .add_systems(
+                FixedLast,
+                send_current_position.run_if(in_state(MultiplayerState::Online)),
+            )
+            .add_systems(
+                Update,
+                stop_client_runtime_on_window_close.run_if(in_state(MultiplayerState::Online)),
+            );
+    }
+}
 
 // States
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]

@@ -1,5 +1,5 @@
-use crate::plugins::overworld::input;
-use crate::plugins::overworld::loading;
+use crate::plugins::overworld::OverworldState;
+use crate::plugins::overworld::{input, loading};
 use crate::AppState;
 use avian3d::math::PI;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
@@ -9,6 +9,26 @@ use bevy::time::{Time, Timer};
 use bevy::utils::default;
 use bevy_sprite3d::Sprite3d;
 use leafwing_input_manager::prelude::ActionState;
+
+pub struct AnimationPlugin;
+impl Plugin for AnimationPlugin {
+    fn build(&self, app: &mut App) {
+        app.register_type::<InitialTransform>()
+            .register_type::<AnimatedInteractionPromptState>()
+            .register_type::<AnimatedRotation>()
+            .add_systems(
+                Update,
+                (
+                    billboard_sprites,
+                    animate_walk_cycles,
+                    animate_interaction_prompts,
+                    flicker_text_box_arrow,
+                    oscillate_rotations,
+                )
+                    .run_if(in_state(OverworldState::InGame)),
+            );
+    }
+}
 
 // Components
 /// Add this to Blender objects to give them the InitialTransform component

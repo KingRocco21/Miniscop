@@ -1,12 +1,31 @@
-use crate::plugins::overworld::{animation, input, Player};
+use crate::plugins::overworld::{animation, input, OverworldState, Player};
 use crate::AppState;
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_asset_loader::prelude::AssetCollection;
+use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
+use bevy_asset_loader::prelude::{AssetCollection, ConfigureLoadingState};
 use bevy_sprite3d::Sprite3d;
 use bevy_tnua::controller::TnuaController;
 use bevy_tnua_avian3d::TnuaAvian3dSensorShape;
 use std::f32::consts::PI;
+
+pub struct LoadingPlugin;
+impl Plugin for LoadingPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_loading_state(
+            LoadingState::new(OverworldState::Loading)
+                .load_collection::<LevelAssets>()
+                .load_collection::<SpriteAssets>()
+                .load_collection::<SoundAssets>()
+                .load_collection::<SongAssets>()
+                .continue_to_state(OverworldState::InGame),
+        )
+        .add_observer(on_add_interaction)
+        .add_observer(on_add_animation_prompt)
+        .add_observer(on_add_animated_rotation)
+        .add_systems(OnEnter(OverworldState::InGame), setup_overworld);
+    }
+}
 
 // Constants
 /// Note: Based on current guardian sprite
