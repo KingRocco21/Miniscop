@@ -169,3 +169,17 @@ pub fn on_add_animation_prompt(
         .entity(trigger.target())
         .insert(animation::InitialTransform(transform.clone()));
 }
+
+pub fn on_add_animated_rotation(
+    trigger: Trigger<OnAdd, animation::AnimatedRotation>,
+    transform_query: Query<&Transform>,
+    mut commands: Commands,
+) {
+    let transform = transform_query
+        .get(trigger.target())
+        .expect("Transform not present, please report to dev!");
+    info!("{}", transform.scale);
+    commands
+        .entity(trigger.target())
+        .insert(animation::InitialTransform(transform.clone()));
+}

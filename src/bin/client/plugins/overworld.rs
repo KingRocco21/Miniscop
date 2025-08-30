@@ -39,6 +39,7 @@ impl Plugin for OverworldPlugin {
         .register_type::<input::interaction::OverworldInteraction>()
         .register_type::<animation::InitialTransform>()
         .register_type::<animation::AnimatedInteractionPromptState>()
+        .register_type::<animation::AnimatedRotation>()
         .init_resource::<ActionState<input::PlayerAction>>()
         .init_resource::<ActionState<input::TextAction>>()
         .insert_resource(input::PlayerAction::default_input_map())
@@ -54,6 +55,7 @@ impl Plugin for OverworldPlugin {
         )
         .add_observer(loading::on_add_interaction)
         .add_observer(loading::on_add_animation_prompt)
+        .add_observer(loading::on_add_animated_rotation)
         .init_state::<MultiplayerState>()
         .add_event::<multiplayer::OtherPlayerMoved>()
         .add_event::<multiplayer::OtherPlayerDisconnected>()
@@ -109,6 +111,7 @@ impl Plugin for OverworldPlugin {
                 animation::animate_walk_cycles,
                 animation::animate_interaction_prompts,
                 animation::flicker_text_box_arrow,
+                animation::oscillate_rotations,
                 input::interaction::typewrite_text,
             )
                 .run_if(in_state(OverworldState::InGame)),

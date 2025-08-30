@@ -11,11 +11,8 @@ use bevy_sprite3d::Sprite3d;
 use leafwing_input_manager::prelude::ActionState;
 
 // Components
-/// When inserting this component in Blender, keep in mind that
-#[derive(Component, Reflect, Deref, DerefMut)]
-#[component(immutable)]
-#[reflect(Component)]
-pub struct InitialTransform(pub Transform);
+/// Add this to Blender objects to give them the InitialTransform component
+/// and hide them by default.
 #[derive(Component, Reflect, Eq, PartialEq, Copy, Clone)]
 #[reflect(Component)]
 pub enum AnimatedInteractionPromptState {
@@ -24,6 +21,18 @@ pub enum AnimatedInteractionPromptState {
     Revealed,
     Shrinking,
 }
+/// Useful for animating the transform without losing the original.
+///
+/// Adding either "NeedsInitialTransform" or "AnimatedInteractionPromptState"
+/// will result in this component being inserted into the entity.
+#[derive(Component, Reflect, Deref, DerefMut)]
+#[component(immutable)]
+#[reflect(Component)]
+pub struct InitialTransform(pub Transform);
+/// Animates the object's rotation using a sine function
+#[derive(Component, Reflect)]
+#[reflect(Component)]
+pub struct AnimatedRotation;
 
 #[derive(Component, Deref, DerefMut)]
 pub struct AnimationTimer(pub Timer);
@@ -178,5 +187,18 @@ pub fn flicker_text_box_arrow(
         if timer.just_finished() {
             visibility.toggle_visible_hidden();
         }
+    }
+}
+
+pub fn oscillate_rotations(
+    mut transforms: Query<(&mut Transform, &InitialTransform), With<AnimatedRotation>>,
+    time: Res<Time>,
+) {
+    for (mut transform, initial_transform) in transforms.iter_mut() {
+        let seconds = time.elapsed_secs();
+
+        // 2 degrees max in each direction
+        let theta_y = sin(PI * seconds) * PI / 90.0;
+        transform.rotation = initial_transform.rotation * Quat::from_rotation_y(theta_y);
     }
 }
