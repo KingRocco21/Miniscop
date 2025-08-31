@@ -1,7 +1,8 @@
 pub mod interaction;
 
 use crate::plugins::overworld::loading::STARTING_PLAYER_TRANSLATION;
-use crate::plugins::overworld::{OverworldState, Player};
+use crate::plugins::overworld::{DebugOverlayRoot, OverworldState, Player};
+use avian3d::prelude::PhysicsGizmos;
 use bevy::prelude::*;
 use bevy_tnua::math::Float;
 use bevy_tnua::prelude::{TnuaBuiltinWalk, TnuaController};
@@ -30,6 +31,7 @@ impl Plugin for InputPlugin {
                     interaction::interact,
                     interaction::proceed_text,
                     respawn,
+                    toggle_debug_mode,
                 )
                     .chain()
                     .run_if(in_state(OverworldState::InGame)),
@@ -49,6 +51,8 @@ pub enum PlayerAction {
     Interact,
     #[actionlike(Button)]
     Respawn,
+    #[actionlike(Button)]
+    ToggleDebugMode,
 }
 
 impl PlayerAction {
@@ -57,6 +61,7 @@ impl PlayerAction {
             .with_dual_axis(Self::Walk, VirtualDPad::arrow_keys().inverted_y())
             .with(Self::Interact, KeyCode::KeyZ)
             .with(Self::Respawn, KeyCode::KeyR)
+            .with(Self::ToggleDebugMode, KeyCode::KeyD)
     }
 }
 
@@ -106,8 +111,29 @@ pub fn respawn(
     transform: Single<&mut Transform, With<Player>>,
     player_action: Res<ActionState<PlayerAction>>,
 ) {
-    let mut transform = transform.into_inner();
     if player_action.just_pressed(&PlayerAction::Respawn) {
+        let mut transform = transform.into_inner();
         transform.translation = STARTING_PLAYER_TRANSLATION;
+    }
+}
+
+pub fn toggle_debug_mode(
+    visibility: Single<&mut Visibility, With<DebugOverlayRoot>>,
+    player_action: Res<ActionState<PlayerAction>>,
+    mut config_store: ResMut<GizmoConfigStore>,
+) {
+    if player_action.just_pressed(&PlayerAction::ToggleDebugMode) {
+        let mut visibility = visibility.into_inner();
+        match *visibility {
+            Visibility::Hidden => {
+                *visibility = Visibility::Visible;
+                *config_store.config_mut::<PhysicsGizmos>().1 = PhysicsGizmos::default();
+            }
+            Visibility::Visible => {
+                *visibility = Visibility::Hidden;
+                *config_store.config_mut::<PhysicsGizmos>().1 = PhysicsGizmos::none();
+            }
+            _ => panic!("Invalid visibility state for debug overlay"),
+        }
     }
 }

@@ -1,24 +1,17 @@
 use crate::plugins::garalina::GaralinaPlugin;
 use crate::plugins::mainmenu::MainMenuPlugin;
 use crate::plugins::overworld::OverworldPlugin;
-use bevy::dev_tools::fps_overlay::{FpsOverlayConfig, FpsOverlayPlugin};
+use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use bevy::text::{FontSmoothing, LineHeight};
 use bevy::window::{CursorOptions, PresentMode, WindowResolution};
+use bevy_asset_loader::loading_state::LoadingState;
+use bevy_asset_loader::prelude::{AssetCollection, ConfigureLoadingState, LoadingStateAppExt};
 use bevy_skein::SkeinPlugin;
 use bevy_sprite3d::Sprite3dPlugin;
-use std::time::Duration;
 
 mod plugins;
-
-#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
-#[states(scoped_entities)]
-pub enum AppState {
-    #[default]
-    Garalina,
-    MainMenu,
-    Overworld,
-}
 
 fn main() {
     App::new()
@@ -48,36 +41,48 @@ fn main() {
                 .set(ImagePlugin::default_nearest()),
             SkeinPlugin::default(),
             Sprite3dPlugin,
-            FpsOverlayPlugin {
-                config: FpsOverlayConfig {
-                    text_color: Color::BLACK,
-                    refresh_interval: Duration::from_secs(1),
-                    ..default()
-                },
-            },
+            FrameTimeDiagnosticsPlugin::default(),
         ))
-        .insert_state(AppState::Overworld)
+        .init_state::<AppState>()
+        .add_loading_state(
+            LoadingState::new(AppState::Loading)
+                .load_collection::<GlobalAssets>()
+                .finally_init_resource::<PetscopFont>()
+                .continue_to_state(AppState::Overworld),
+        )
         .add_plugins((GaralinaPlugin, MainMenuPlugin, OverworldPlugin))
-        .add_systems(Startup, setup)
         .run();
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+#[states(scoped_entities)]
+pub enum AppState {
+    #[default]
+    Loading,
+    Garalina,
+    MainMenu,
+    Overworld,
+}
+
+#[derive(AssetCollection, Resource)]
+pub struct GlobalAssets {
+    #[asset(path = "global/fonts/PetscopWide.ttf")]
+    pub petscop_font: Handle<Font>,
 }
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct PetscopFont(TextFont);
-// Systems
-fn setup(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut fps_overlay_config: ResMut<FpsOverlayConfig>,
-) {
-    let petscop_font_handle = asset_server.load::<Font>("global/fonts/PetscopWide.ttf");
-    let petscop_font = TextFont {
-        font: petscop_font_handle,
-        font_size: 30.0,
-        line_height: LineHeight::RelativeToFont(1.0),
-        font_smoothing: FontSmoothing::None,
-    };
-    fps_overlay_config.text_config = petscop_font.clone();
-    commands.insert_resource(PetscopFont(petscop_font));
-    // Possible fix for overlay bugs: get entity and insert renderlayer or UITargetCamera
+
+// Based on https://github.com/NiklasEi/bevy_asset_loader/blob/main/bevy_asset_loader/examples/finally_init_resource.rs
+impl FromWorld for PetscopFont {
+    fn from_world(world: &mut World) -> Self {
+        let mut system_state = SystemState::<Res<GlobalAssets>>::new(world);
+        let assets = system_state.get(world);
+        PetscopFont(TextFont {
+            font: assets.petscop_font.clone(),
+            font_size: 30.0,
+            line_height: LineHeight::RelativeToFont(1.0),
+            font_smoothing: FontSmoothing::None,
+        })
+    }
 }

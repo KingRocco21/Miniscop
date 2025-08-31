@@ -74,9 +74,6 @@ pub fn when_leaving_interactable(
 
 #[derive(Component)]
 #[component(immutable)]
-pub struct ScreenContainerNode;
-#[derive(Component)]
-#[component(immutable)]
 pub struct TextBoxNode;
 #[derive(Component)]
 #[component(immutable)]
@@ -94,9 +91,9 @@ pub fn interact(
     sprites: Res<loading::SpriteAssets>,
     sounds: Res<loading::SoundAssets>,
 ) {
-    let within_range_of = within_range_of.into_inner();
-
     if player_action.just_pressed(&PlayerAction::Interact) {
+        let within_range_of = within_range_of.into_inner();
+
         let interaction = interactions
             .get(within_range_of.0)
             .expect("Interactable entities should always have OverworldInteraction");
@@ -105,16 +102,6 @@ pub fn interact(
 
         match interaction {
             OverworldInteraction::Text(text) => {
-                // Entire screen
-                let container_node = (
-                    ScreenContainerNode,
-                    Node {
-                        width: Val::Percent(100.0),
-                        height: Val::Percent(100.0),
-                        ..default()
-                    },
-                );
-
                 let text_box_node = (
                     Node {
                         position_type: PositionType::Absolute,
@@ -179,18 +166,15 @@ pub fn interact(
                     AudioPlayer::new(sounds.dialogue.clone()),
                     PlaybackSettings {
                         mode: PlaybackMode::Loop,
-                        volume: Volume::Linear(0.5),
+                        volume: Volume::Linear(1.0),
                         ..default()
                     },
                 );
 
                 commands.spawn((
                     StateScoped(AppState::Overworld),
-                    container_node,
-                    children![
-                        (text_box_node, children![text_node, arrow_node]),
-                        dialogue_sfx
-                    ],
+                    text_box_node,
+                    children![text_node, arrow_node, dialogue_sfx],
                 ));
 
                 // Play dialogue start sound
@@ -199,7 +183,7 @@ pub fn interact(
                     AudioPlayer::new(sounds.dialogue_start.clone()),
                     PlaybackSettings {
                         mode: PlaybackMode::Despawn,
-                        volume: Volume::Linear(0.5),
+                        volume: Volume::Linear(1.0),
                         ..default()
                     },
                 ));
@@ -268,7 +252,7 @@ pub fn proceed_text(
     mut commands: Commands,
     mut player_action: ResMut<ActionState<PlayerAction>>,
     mut text_action: ResMut<ActionState<TextAction>>,
-    screen_container_node: Single<Entity, With<ScreenContainerNode>>,
+    text_box_node: Single<Entity, With<TextBoxNode>>,
     text_node: Single<(Entity, &mut CompleteText)>,
     dialogue_sfx: Single<&AudioSink, With<DialogueSfx>>,
     arrow_node: Single<(&mut Visibility, &mut AnimationTimer), With<TextBoxArrowNode>>,
@@ -281,7 +265,7 @@ pub fn proceed_text(
         return;
     }
     if text_action.just_pressed(&TextAction::Proceed) {
-        let screen_container_node = screen_container_node.into_inner();
+        let text_box_node = text_box_node.into_inner();
         let (text_node, mut text) = text_node.into_inner();
         // There are three possibilities:
         // 1. There is no more text left to display.
@@ -301,12 +285,12 @@ pub fn proceed_text(
                 AudioPlayer::new(sounds.dialogue_end.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
-                    volume: Volume::Linear(0.5),
+                    volume: Volume::Linear(1.0),
                     ..default()
                 },
             ));
 
-            commands.entity(screen_container_node).despawn();
+            commands.entity(text_box_node).despawn();
             text_action.disable();
             player_action.enable();
         } else if text.typewriter_timer.paused() && text.punctuation_pause_timer.paused() {
@@ -319,7 +303,7 @@ pub fn proceed_text(
                 AudioPlayer::new(sounds.dialogue_start.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
-                    volume: Volume::Linear(0.5),
+                    volume: Volume::Linear(1.0),
                     ..default()
                 },
             ));

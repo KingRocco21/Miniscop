@@ -31,7 +31,7 @@ impl Plugin for LoadingPlugin {
 /// Note: Based on current guardian sprite
 pub const SPRITE_PIXELS_PER_METER: f32 = 33.0;
 pub const STARTING_PLAYER_TRANSLATION: Vec3 = Vec3::new(-2.0, input::FLOAT_HEIGHT, 0.0);
-pub const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 5.0, 10.0);
+pub const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 4.0, 9.0);
 
 // Resources
 #[derive(AssetCollection, Resource)]
@@ -69,7 +69,7 @@ pub struct SoundAssets {
 }
 #[derive(AssetCollection, Resource)]
 pub struct SongAssets {
-    #[asset(path = "overworld/sounds/gift_plane.ogg")]
+    #[asset(path = "overworld/songs/gift_plane.ogg")]
     pub gift_plane: Handle<AudioSource>,
 }
 
@@ -197,7 +197,6 @@ pub fn on_add_animated_rotation(
     let transform = transform_query
         .get(trigger.target())
         .expect("Transform not present, please report to dev!");
-    info!("{}", transform.scale);
     commands
         .entity(trigger.target())
         .insert(animation::InitialTransform(transform.clone()));
