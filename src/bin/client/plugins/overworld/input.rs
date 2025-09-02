@@ -79,7 +79,7 @@ impl TextAction {
 // Physics Constants
 const MAX_VELOCITY: Float = 4.0;
 pub const FLOAT_HEIGHT: Float = 0.95;
-const CLING_DISTANCE: Float = 0.1;
+const CLING_DISTANCE: Float = 0.5;
 const SPRING_DAMPENING: Float = 0.5;
 const ACCELERATION: Float = 25.0;
 
