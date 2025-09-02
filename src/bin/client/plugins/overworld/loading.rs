@@ -13,17 +13,21 @@ pub struct LoadingPlugin;
 impl Plugin for LoadingPlugin {
     fn build(&self, app: &mut App) {
         app.add_loading_state(
-            LoadingState::new(OverworldState::Loading)
-                .load_collection::<LevelAssets>()
-                .load_collection::<SpriteAssets>()
-                .load_collection::<SoundAssets>()
-                .load_collection::<SongAssets>()
-                .continue_to_state(OverworldState::InGame),
+            LoadingState::new(OverworldState::LoadingOverworld)
+                .load_collection::<OverworldAssets>()
+                .continue_to_state(OverworldState::LoadingLevel),
         )
+        .add_systems(OnExit(OverworldState::LoadingOverworld), setup_overworld)
+        .add_loading_state(
+            LoadingState::new(OverworldState::LoadingLevel)
+                .load_collection::<LevelAssets>()
+                .continue_to_state(OverworldState::LoadingScene),
+        )
+        .add_systems(OnExit(OverworldState::LoadingLevel), setup_level)
+        .add_systems(OnEnter(OverworldState::LoadingScene), setup_scene)
         .add_observer(on_add_interaction)
         .add_observer(on_add_animation_prompt)
-        .add_observer(on_add_animated_rotation)
-        .add_systems(OnEnter(OverworldState::InGame), setup_overworld);
+        .add_observer(on_add_animated_rotation);
     }
 }
 
@@ -33,14 +37,8 @@ pub const SPRITE_PIXELS_PER_METER: f32 = 33.0;
 pub const STARTING_PLAYER_TRANSLATION: Vec3 = Vec3::new(-2.0, input::FLOAT_HEIGHT, 0.0);
 pub const STARTING_CAMERA_TRANSLATION: Vec3 = Vec3::new(0.0, 4.0, 9.0);
 
-// Resources
 #[derive(AssetCollection, Resource)]
-pub struct LevelAssets {
-    #[asset(path = "overworld/3d/Gift_Plane.glb#Scene0")]
-    pub gift_plane: Handle<Scene>,
-}
-#[derive(AssetCollection, Resource)]
-pub struct SpriteAssets {
+pub struct OverworldAssets {
     #[asset(path = "overworld/2d/guardian.png")]
     guardian_image: Handle<Image>,
     #[asset(path = "overworld/2d/other_player.png")]
@@ -51,9 +49,6 @@ pub struct SpriteAssets {
     pub text_box_image: Handle<Image>,
     #[asset(path = "overworld/2d/text_box_arrow.png")]
     pub text_box_arrow_image: Handle<Image>,
-}
-#[derive(AssetCollection, Resource)]
-pub struct SoundAssets {
     #[asset(path = "overworld/sounds/walking_1.ogg")]
     pub walking_1: Handle<AudioSource>,
     #[asset(path = "overworld/sounds/walking_2.ogg")]
@@ -68,29 +63,25 @@ pub struct SoundAssets {
     pub dialogue_end: Handle<AudioSource>,
 }
 #[derive(AssetCollection, Resource)]
-pub struct SongAssets {
-    #[asset(path = "overworld/songs/gift_plane.ogg")]
-    pub gift_plane: Handle<AudioSource>,
+pub struct LevelAssets {
+    #[asset(key = "gltf")]
+    pub gltf: Handle<Gltf>,
+    #[asset(key = "music")]
+    pub music: Handle<AudioSource>,
 }
 
+/// Check that the current level has the desired scene number BEFORE changing the scene.
+#[derive(Resource)]
+pub struct CurrentScene(pub usize);
+
 // Systems
-pub fn setup_overworld(
-    mut commands: Commands,
-    levels: Res<LevelAssets>,
-    sprites: Res<SpriteAssets>,
-) {
+pub fn setup_overworld(mut commands: Commands, sprites: Res<OverworldAssets>) {
     // Spawn floor
     commands.spawn((
         StateScoped(AppState::Overworld),
         Transform::from_xyz(0.0, -0.5, 0.0),
         RigidBody::Static,
         Collider::cuboid(1000.0, 1.0, 1000.0),
-    ));
-    // Spawn level
-    commands.spawn((
-        StateScoped(AppState::Overworld),
-        SceneRoot(levels.gift_plane.clone()),
-        Transform::default(),
     ));
 
     // Spawn player
@@ -129,17 +120,6 @@ pub fn setup_overworld(
         )],
     ));
 
-    // Spawn music
-    // commands.spawn((
-    //     StateScoped(AppState::Overworld),
-    //     AudioPlayer::new(songs.gift_plane.clone()),
-    //     PlaybackSettings {
-    //         mode: PlaybackMode::Loop,
-    //         volume: Volume::Linear(0.5),
-    //         ..default()
-    //     },
-    // ));
-
     // Spawn camera
     commands.spawn((
         StateScoped(AppState::Overworld),
@@ -161,6 +141,43 @@ pub fn setup_overworld(
         DirectionalLight::default(),
         Transform::from_rotation(Quat::from_rotation_y(PI / 4.0)),
     ));
+}
+
+fn setup_level(mut commands: Commands, _level: Res<LevelAssets>) {
+    // Set room number
+    commands.insert_resource(CurrentScene(0));
+
+    // Spawn music
+    // commands.spawn((
+    //     StateScoped(AppState::Overworld),
+    //     AudioPlayer::new(level.music.clone()),
+    //     PlaybackSettings {
+    //         mode: PlaybackMode::Loop,
+    //         volume: Volume::Linear(0.5),
+    //         ..default()
+    //     },
+    // ));
+}
+
+fn setup_scene(
+    mut commands: Commands,
+    level: Res<LevelAssets>,
+    gltf: Res<Assets<Gltf>>,
+    current_scene: Res<CurrentScene>,
+    mut next_state: ResMut<NextState<OverworldState>>,
+) {
+    // Spawn room
+    let scene = &gltf
+        .get(level.gltf.id())
+        .expect("The gltf should be loaded.")
+        .scenes[current_scene.0];
+    commands.spawn((
+        StateScoped(OverworldState::InScene),
+        SceneRoot(scene.clone()),
+        Transform::default(),
+    ));
+    next_state.set(OverworldState::InScene);
+    info!("Scene is done loading");
 }
 
 /// We must observe when Skein spawns the interaction sensor so we can add collision observers.

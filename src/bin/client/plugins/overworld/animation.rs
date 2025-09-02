@@ -25,7 +25,7 @@ impl Plugin for AnimationPlugin {
                     flicker_text_box_arrow,
                     oscillate_rotations,
                 )
-                    .run_if(in_state(OverworldState::InGame)),
+                    .run_if(in_state(OverworldState::InScene)),
             );
     }
 }
@@ -74,7 +74,7 @@ pub fn animate_walk_cycles(
     time: Res<Time>,
     mut query: Query<(&mut AnimationTimer, &mut Sprite)>,
     player_action: ResMut<ActionState<input::PlayerAction>>,
-    sounds: Res<loading::SoundAssets>,
+    assets: Res<loading::OverworldAssets>,
 ) {
     let delta = time.delta();
     for (mut timer, mut sprite) in query.iter_mut() {
@@ -128,7 +128,7 @@ pub fn animate_walk_cycles(
                 if current_frame == 2 {
                     commands.spawn((
                         StateScoped(AppState::Overworld),
-                        AudioPlayer::new(sounds.walking_1.clone()),
+                        AudioPlayer::new(assets.walking_1.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
                             ..default()
@@ -137,7 +137,7 @@ pub fn animate_walk_cycles(
                 } else if current_frame == 4 {
                     commands.spawn((
                         StateScoped(AppState::Overworld),
-                        AudioPlayer::new(sounds.walking_2.clone()),
+                        AudioPlayer::new(assets.walking_2.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
                             ..default()

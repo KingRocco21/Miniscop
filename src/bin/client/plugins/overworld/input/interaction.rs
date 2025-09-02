@@ -1,10 +1,11 @@
-use crate::plugins::overworld::animation::AnimationTimer;
 use crate::plugins::overworld::input::{PlayerAction, TextAction};
-use crate::plugins::overworld::{animation, loading, Player};
+use crate::plugins::overworld::{animation, loading, OverworldState, Player};
 use crate::{AppState, PetscopFont};
 use avian3d::prelude::{OnCollisionEnd, OnCollisionStart};
 use bevy::audio::{PlaybackMode, Volume};
 use bevy::prelude::*;
+use bevy_asset_loader::dynamic_asset::DynamicAssets;
+use bevy_asset_loader::prelude::StandardDynamicAsset;
 use leafwing_input_manager::action_state::ActionState;
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -15,9 +16,13 @@ use unicode_segmentation::UnicodeSegmentation;
 #[component(immutable)]
 #[reflect(Component)]
 pub enum OverworldInteraction {
+    /// https://codepoints.net/U+2028 == New line
+    ///
+    /// https://codepoints.net/U+2029 == End of paragraph (not needed at the very end of the text)
     Text(String),
+    /// The string is case-sensitive and must match the file names of the .gltf and .ogg exactly.
+    LevelTransition { next_level: String },
 }
-
 /// This component is given to the player whenever they can interact with something.
 #[derive(Component, Debug)]
 #[component(immutable)]
@@ -25,30 +30,63 @@ pub struct WithinRangeOfInteractable(pub Entity);
 
 pub fn when_approaching_interactable(
     trigger: Trigger<OnCollisionStart>,
+    interaction: Query<&OverworldInteraction>,
     mut commands: Commands,
-    sounds: Res<loading::SoundAssets>,
+    sounds: Res<loading::OverworldAssets>,
     children_query: Query<&Children>,
     mut prompt_state_query: Query<&mut animation::AnimatedInteractionPromptState>,
+    mut dynamic_assets: ResMut<DynamicAssets>,
 ) {
-    // Play sound
-    commands.spawn((
-        StateScoped(AppState::Overworld),
-        AudioPlayer::new(sounds.approaching_interactable.clone()),
-        PlaybackSettings {
-            mode: PlaybackMode::Despawn,
-            ..default()
-        },
-    ));
+    if let Ok(interaction) = interaction.get(trigger.target()) {
+        match interaction {
+            OverworldInteraction::Text(_) => {
+                // Play sound
+                commands.spawn((
+                    StateScoped(OverworldState::InScene),
+                    AudioPlayer::new(sounds.approaching_interactable.clone()),
+                    PlaybackSettings {
+                        mode: PlaybackMode::Despawn,
+                        ..default()
+                    },
+                ));
 
-    // Add "WithinRangeOfInteractable" to player
-    commands
-        .entity(trigger.collider)
-        .insert(WithinRangeOfInteractable(trigger.target()));
+                // Add "WithinRangeOfInteractable" to player
+                commands
+                    .entity(trigger.collider)
+                    .insert(WithinRangeOfInteractable(trigger.target()));
 
-    // Change the AnimatedInteractionPromptState of the prompt entity
-    for child in children_query.iter_descendants(trigger.target()) {
-        if let Ok(mut interaction) = prompt_state_query.get_mut(child) {
-            *interaction = animation::AnimatedInteractionPromptState::Growing;
+                // Change the AnimatedInteractionPromptState of the prompt entity
+                for child in children_query.iter_descendants(trigger.target()) {
+                    if let Ok(mut interaction) = prompt_state_query.get_mut(child) {
+                        *interaction = animation::AnimatedInteractionPromptState::Growing;
+                    }
+                }
+            }
+            OverworldInteraction::LevelTransition { next_level } => {
+                let glb_path = format!("overworld/3d/{next_level}.glb");
+                let ogg_path = format!("overworld/music/{next_level}.ogg");
+                info!("Attempting to load path {} and {}", glb_path, ogg_path);
+
+                dynamic_assets.register_asset(
+                    "gltf",
+                    Box::new(StandardDynamicAsset::File { path: glb_path }),
+                );
+                dynamic_assets.register_asset(
+                    "music",
+                    Box::new(StandardDynamicAsset::File { path: ogg_path }),
+                );
+
+                commands.spawn((
+                    StateScoped(OverworldState::InScene),
+                    Node {
+                        position_type: PositionType::Absolute,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+                    GlobalZIndex(1),
+                    animation::FadeOut,
+                ));
+            }
         }
     }
 }
@@ -88,8 +126,7 @@ pub fn interact(
     mut player_action: ResMut<ActionState<PlayerAction>>,
     interactions: Query<&OverworldInteraction>,
     mut commands: Commands,
-    sprites: Res<loading::SpriteAssets>,
-    sounds: Res<loading::SoundAssets>,
+    assets: Res<loading::OverworldAssets>,
 ) {
     if player_action.just_pressed(&PlayerAction::Interact) {
         let within_range_of = within_range_of.into_inner();
@@ -98,10 +135,9 @@ pub fn interact(
             .get(within_range_of.0)
             .expect("Interactable entities should always have OverworldInteraction");
 
-        player_action.disable();
-
         match interaction {
             OverworldInteraction::Text(text) => {
+                player_action.disable();
                 let text_box_node = (
                     Node {
                         position_type: PositionType::Absolute,
@@ -114,7 +150,7 @@ pub fn interact(
                         ..default()
                     },
                     ImageNode {
-                        image: sprites.text_box_image.clone(),
+                        image: assets.text_box_image.clone(),
                         image_mode: NodeImageMode::Sliced(TextureSlicer {
                             border: BorderRect {
                                 left: 8.0,
@@ -147,7 +183,7 @@ pub fn interact(
 
                 let arrow_node = (
                     TextBoxArrowNode,
-                    ImageNode::new(sprites.text_box_arrow_image.clone()),
+                    ImageNode::new(assets.text_box_arrow_image.clone()),
                     Node {
                         position_type: PositionType::Absolute,
                         left: Val::Vw(75.0),
@@ -155,7 +191,7 @@ pub fn interact(
                         ..default()
                     },
                     Transform::from_scale(Vec3::splat(3.0)),
-                    AnimationTimer(arrow_animation_timer),
+                    animation::AnimationTimer(arrow_animation_timer),
                     Visibility::Hidden,
                 );
 
@@ -163,7 +199,7 @@ pub fn interact(
                 // (It needs to be despawned when the interaction ends)
                 let dialogue_sfx = (
                     DialogueSfx,
-                    AudioPlayer::new(sounds.dialogue.clone()),
+                    AudioPlayer::new(assets.dialogue.clone()),
                     PlaybackSettings {
                         mode: PlaybackMode::Loop,
                         volume: Volume::Linear(1.0),
@@ -180,7 +216,7 @@ pub fn interact(
                 // Play dialogue start sound
                 commands.spawn((
                     StateScoped(AppState::Overworld),
-                    AudioPlayer::new(sounds.dialogue_start.clone()),
+                    AudioPlayer::new(assets.dialogue_start.clone()),
                     PlaybackSettings {
                         mode: PlaybackMode::Despawn,
                         volume: Volume::Linear(1.0),
@@ -188,6 +224,7 @@ pub fn interact(
                     },
                 ));
             }
+            OverworldInteraction::LevelTransition { .. } => return, // No action on interact
         }
     }
 }
@@ -255,9 +292,9 @@ pub fn proceed_text(
     text_box_node: Single<Entity, With<TextBoxNode>>,
     text_node: Single<(Entity, &mut CompleteText)>,
     dialogue_sfx: Single<&AudioSink, With<DialogueSfx>>,
-    arrow_node: Single<(&mut Visibility, &mut AnimationTimer), With<TextBoxArrowNode>>,
+    arrow_node: Single<(&mut Visibility, &mut animation::AnimationTimer), With<TextBoxArrowNode>>,
     petscop_font: Res<PetscopFont>,
-    sounds: Res<loading::SoundAssets>,
+    assets: Res<loading::OverworldAssets>,
 ) {
     // This prevents the player's interaction from opening the text box AND skipping to the end of the paragraph on the same frame.
     if text_action.disabled() {
@@ -282,7 +319,7 @@ pub fn proceed_text(
             // Play dialogue end sound
             commands.spawn((
                 StateScoped(AppState::Overworld),
-                AudioPlayer::new(sounds.dialogue_end.clone()),
+                AudioPlayer::new(assets.dialogue_end.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
                     volume: Volume::Linear(1.0),
@@ -300,7 +337,7 @@ pub fn proceed_text(
             // Play dialogue start sound
             commands.spawn((
                 StateScoped(AppState::Overworld),
-                AudioPlayer::new(sounds.dialogue_start.clone()),
+                AudioPlayer::new(assets.dialogue_start.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
                     volume: Volume::Linear(1.0),
@@ -337,7 +374,7 @@ pub fn typewrite_text(
     mut commands: Commands,
     text_node: Single<(Entity, &mut CompleteText)>,
     dialogue_sfx: Single<&AudioSink, With<DialogueSfx>>,
-    arrow_node: Single<(&mut Visibility, &mut AnimationTimer), With<TextBoxArrowNode>>,
+    arrow_node: Single<(&mut Visibility, &mut animation::AnimationTimer), With<TextBoxArrowNode>>,
     time: Res<Time>,
     petscop_font: Res<PetscopFont>,
 ) {
@@ -384,7 +421,7 @@ fn pop_grapheme(
     text_node: &Entity,
     dialogue_sfx: &AudioSink,
     arrow_visibility: &mut Visibility,
-    arrow_timer: &mut AnimationTimer,
+    arrow_timer: &mut animation::AnimationTimer,
     petscop_font: &PetscopFont,
 ) -> bool {
     match text.graphemes.pop_front() {

@@ -34,11 +34,11 @@ impl Plugin for InputPlugin {
                     toggle_debug_mode,
                 )
                     .chain()
-                    .run_if(in_state(OverworldState::InGame)),
+                    .run_if(in_state(OverworldState::InScene)),
             )
             .add_systems(
                 Update,
-                interaction::typewrite_text.run_if(in_state(OverworldState::InGame)),
+                interaction::typewrite_text.run_if(in_state(OverworldState::InScene)),
             );
     }
 }

@@ -1,3 +1,4 @@
+// Todo: Add scene checks
 mod netcode;
 
 use crate::plugins::overworld::{animation, loading, OverworldState, Player};
@@ -21,7 +22,7 @@ impl Plugin for MultiplayerPlugin {
         app.init_state::<MultiplayerState>()
             .add_event::<OtherPlayerMoved>()
             .add_event::<OtherPlayerDisconnected>()
-            .add_systems(OnEnter(OverworldState::InGame), setup_client_runtime)
+            .add_systems(OnEnter(OverworldState::InScene), setup_client_runtime)
             .add_systems(
                 FixedFirst,
                 (
@@ -34,7 +35,7 @@ impl Plugin for MultiplayerPlugin {
                         .run_if(in_state(MultiplayerState::Online)),
                 )
                     .chain()
-                    .run_if(in_state(OverworldState::InGame)),
+                    .run_if(in_state(OverworldState::InScene)),
             )
             .add_systems(
                 FixedLast,
@@ -184,7 +185,7 @@ pub fn read_packets(
 /// This system updates the transforms of other players, and spawns the player if they don't exist yet.
 pub fn on_other_player_moved(
     mut commands: Commands,
-    sprites: Res<loading::SpriteAssets>,
+    sprites: Res<loading::OverworldAssets>,
     mut player_moved: EventReader<OtherPlayerMoved>,
     mut query: Query<(&OtherPlayer, &mut Transform, &mut Sprite)>,
 ) {
