@@ -80,7 +80,9 @@ fn setup(
         Node {
             // We need to make sure the overlay doesn't affect the position of other UI nodes
             position_type: PositionType::Absolute,
-            ..Default::default()
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
         },
         // Render overlay on top of everything
         // (1 == screen transition)

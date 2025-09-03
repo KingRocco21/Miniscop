@@ -165,6 +165,7 @@ fn setup_scene(
     gltf: Res<Assets<Gltf>>,
     current_scene: Res<CurrentScene>,
     mut next_state: ResMut<NextState<OverworldState>>,
+    mut transform: Single<&mut Transform, With<Player>>,
 ) {
     // Spawn room
     let scene = &gltf
@@ -176,6 +177,23 @@ fn setup_scene(
         SceneRoot(scene.clone()),
         Transform::default(),
     ));
+
+    transform.translation = STARTING_PLAYER_TRANSLATION;
+
+    commands.spawn((
+        StateScoped(OverworldState::InScene),
+        animation::ScreenTransition,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 1.0)),
+        GlobalZIndex(1),
+        animation::FadeIn,
+    ));
+
     next_state.set(OverworldState::InScene);
     info!("Scene is done loading");
 }

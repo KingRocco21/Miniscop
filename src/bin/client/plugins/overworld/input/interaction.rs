@@ -36,6 +36,7 @@ pub fn when_approaching_interactable(
     children_query: Query<&Children>,
     mut prompt_state_query: Query<&mut animation::AnimatedInteractionPromptState>,
     mut dynamic_assets: ResMut<DynamicAssets>,
+    screen_transition: Single<Entity, With<animation::ScreenTransition>>,
 ) {
     if let Ok(interaction) = interaction.get(trigger.target()) {
         match interaction {
@@ -76,16 +77,13 @@ pub fn when_approaching_interactable(
                     Box::new(StandardDynamicAsset::File { path: ogg_path }),
                 );
 
-                commands.spawn((
-                    StateScoped(OverworldState::InScene),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                    GlobalZIndex(1),
-                    animation::FadeOut,
-                ));
+                let screen = screen_transition.into_inner();
+                commands
+                    .entity(screen)
+                    .remove::<animation::FadeIn>()
+                    .insert(animation::FadeOut {
+                        next_state: OverworldState::LoadingLevel,
+                    });
             }
         }
     }
@@ -318,7 +316,7 @@ pub fn proceed_text(
 
             // Play dialogue end sound
             commands.spawn((
-                StateScoped(AppState::Overworld),
+                StateScoped(OverworldState::InScene),
                 AudioPlayer::new(assets.dialogue_end.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,
@@ -336,7 +334,7 @@ pub fn proceed_text(
 
             // Play dialogue start sound
             commands.spawn((
-                StateScoped(AppState::Overworld),
+                StateScoped(OverworldState::InScene),
                 AudioPlayer::new(assets.dialogue_start.clone()),
                 PlaybackSettings {
                     mode: PlaybackMode::Despawn,

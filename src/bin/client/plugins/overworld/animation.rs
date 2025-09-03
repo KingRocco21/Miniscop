@@ -1,6 +1,5 @@
 use crate::plugins::overworld::OverworldState;
 use crate::plugins::overworld::{input, loading};
-use crate::AppState;
 use avian3d::math::PI;
 use bevy::audio::{AudioPlayer, PlaybackMode, PlaybackSettings};
 use bevy::prelude::ops::sin;
@@ -24,6 +23,8 @@ impl Plugin for AnimationPlugin {
                     animate_interaction_prompts,
                     flicker_text_box_arrow,
                     oscillate_rotations,
+                    fade_in_screen,
+                    fade_out_screen,
                 )
                     .run_if(in_state(OverworldState::InScene)),
             );
@@ -56,6 +57,20 @@ pub struct AnimatedRotation;
 
 #[derive(Component, Deref, DerefMut)]
 pub struct AnimationTimer(pub Timer);
+
+#[derive(Component)]
+#[component(immutable)]
+pub struct ScreenTransition;
+
+#[derive(Component)]
+#[component(immutable)]
+pub struct FadeOut {
+    pub next_state: OverworldState,
+}
+
+#[derive(Component)]
+#[component(immutable)]
+pub struct FadeIn;
 
 // Systems
 pub fn billboard_sprites(
@@ -127,7 +142,7 @@ pub fn animate_walk_cycles(
                 let current_frame = (atlas.index as f32 / 5.0).floor() as usize;
                 if current_frame == 2 {
                     commands.spawn((
-                        StateScoped(AppState::Overworld),
+                        StateScoped(OverworldState::InScene),
                         AudioPlayer::new(assets.walking_1.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
@@ -136,7 +151,7 @@ pub fn animate_walk_cycles(
                     ));
                 } else if current_frame == 4 {
                     commands.spawn((
-                        StateScoped(AppState::Overworld),
+                        StateScoped(OverworldState::InScene),
                         AudioPlayer::new(assets.walking_2.clone()),
                         PlaybackSettings {
                             mode: PlaybackMode::Despawn,
@@ -220,5 +235,38 @@ pub fn oscillate_rotations(
         // 2 degrees max in each direction
         let theta_y = sin(PI * seconds) * PI / 90.0;
         transform.rotation = initial_transform.rotation * Quat::from_rotation_y(theta_y);
+    }
+}
+
+fn fade_out_screen(
+    mut commands: Commands,
+    ui_node: Single<(Entity, &mut BackgroundColor, &FadeOut), With<ScreenTransition>>,
+    time: Res<Time>,
+    mut next_state: ResMut<NextState<OverworldState>>,
+) {
+    let (screen, mut color, fade) = ui_node.into_inner();
+    let alpha = (color.0.alpha() + time.delta_secs() * 2.0).min(1.0);
+    color.0.set_alpha(alpha);
+    // info!("Alpha: {}", color.0.alpha());
+
+    if color.0.alpha() == 1.0 {
+        info!("Changing state to {:?}", fade.next_state);
+        next_state.set(fade.next_state);
+        commands.entity(screen).remove::<FadeOut>().insert(FadeIn);
+    }
+}
+
+fn fade_in_screen(
+    mut commands: Commands,
+    ui_node: Single<(Entity, &mut BackgroundColor), With<FadeIn>>,
+    time: Res<Time>,
+) {
+    let (screen, mut color) = ui_node.into_inner();
+    let alpha = (color.0.alpha() - time.delta_secs() * 2.0).max(0.0);
+    color.0.set_alpha(alpha);
+    // info!("Alpha: {}", color.0.alpha());
+
+    if color.0.alpha() == 0.0 {
+        commands.entity(screen).remove::<FadeIn>();
     }
 }
